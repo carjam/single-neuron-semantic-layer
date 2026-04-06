@@ -18,13 +18,16 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 2. **Rules as a matrix (expert knowledge `K`)**  
    Each possible **decision outcome** is a row. Features (encoded from qualitative dimensions) are columns. Cell values are **weights**, with rows normalized (e.g., row sums to 1) so scores are comparable across decisions.
 
-3. **Observations as bit vectors (`D`)**  
-   Qualitative feed attributes are **kernelized** into a fixed set of numeric/binary feature columns (preprocessing is feasible because the **rule set is small**; the **observation set is huge**).
+3. **Kernelization of qualitative data**  
+   Upstream fields are categorical text (labels, hierarchies, wildcards in the semantic layer UI). Before scoring, each observation is mapped into a **fixed dictionary of atomic binary features** in $\mathbb{R}^M$: a sparse **0/1 vector** with one coordinate per matchable dimension. That avoids repeated string logic and `LIKE`/`OR` explosions on the large observation table; the mapping is maintained where the rule set lives (small), not recomputed per row with heavy parsing.
 
-4. **Score = linear combination**  
-   Conceptually, for each observation column in the transposed formulation, scores per decision are obtained from **matrix multiplication** of `K` against the observation vector. In practice this is implemented with joins and aggregates in SQL.
+4. **Variable space vs subject space**  
+   **Variable space** (column space): stack observations as rows of a matrix $D$; each row $d_j \in \mathbb{R}^M$ is one ticket (or loan, or trade) expressed in shared feature coordinates. **Expert rows** $k_i$ of $K$ live in the **same** $\mathbb{R}^M$, so the score is a standard inner product $\langle k_i, d_j\rangle$ (implemented as a sum of weights over **active** coordinates). **Subject space** is the dual arrangement: each **feature** is a vector over observations (the transpose of $D$). Same inner products; different layout for intuition—e.g., seeing which tickets fire the same dimensions together.
 
-5. **Action layer**  
+5. **Score = linear combination**  
+   Sparse dot products per $(i,j)$ match matrix multiply $K D^\top$ (up to layout). SQL expresses this with keyed joins and aggregates rather than dense linear algebra APIs.
+
+6. **Action layer**  
    For the main use case, the **argmax** over decisions selected the winning label; a **precedence / waterfall** resolved ties and business ordering. Results were **unpivoted** back to **row-shaped** output matching how consumers expected to see fact rows.
 
 ## Constraints and non-goals
@@ -46,7 +49,7 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 
 ## What the synthetic demos in this repo show
 
-They implement a **tiny** version of: features → rule weights → observation features → **per-observation scores** → **pick winning decision**, using **made-up** domains and data so nothing ties back to a real employer.
+They implement a **tiny** pipeline: **qualitative feed** → **kernelization** into sparse binary features → **variable-space** views of $D$ and $K$ → **subject-space** transpose (features × tickets) → **scores** $\langle k_i, d_j\rangle$ → **winning decision**. All data is fictional.
 
 ## Lessons (still relevant)
 
