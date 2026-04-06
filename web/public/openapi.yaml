@@ -15,7 +15,7 @@ tags:
   - name: Health
     description: Runtime health checks for demo SQL routines.
   - name: HierarchyRules
-    description: CRUD for hierarchy matching rules (rule_id + 3-level wildcard pattern + descriptor_01..10).
+    description: CRUD for hierarchy matching rules (rule_id + variable-depth wildcard pattern, levels 1..7 + descriptor_01..10).
   - name: Rules
     description: Outcome/workstream reference data.
   - name: Enriched
@@ -258,6 +258,11 @@ components:
         - hierarchyTop
         - hierarchyMiddle
         - hierarchyBottom
+        - hierarchyLevel04
+        - hierarchyLevel05
+        - hierarchyLevel06
+        - hierarchyLevel07
+        - hierarchyLevels
         - descriptorValues
       properties:
         hierarchyRuleId:
@@ -272,6 +277,20 @@ components:
           type: string
         hierarchyBottom:
           type: string
+        hierarchyLevel04:
+          type: string
+        hierarchyLevel05:
+          type: string
+        hierarchyLevel06:
+          type: string
+        hierarchyLevel07:
+          type: string
+        hierarchyLevels:
+          type: array
+          minItems: 7
+          maxItems: 7
+          items:
+            type: string
         descriptorValues:
           $ref: "#/components/schemas/DescriptorValues"
 
@@ -304,6 +323,24 @@ components:
           type: string
         hierarchyBottom:
           type: string
+        hierarchyLevel04:
+          type: string
+          default: "*"
+        hierarchyLevel05:
+          type: string
+          default: "*"
+        hierarchyLevel06:
+          type: string
+          default: "*"
+        hierarchyLevel07:
+          type: string
+          default: "*"
+        hierarchyLevels:
+          type: array
+          minItems: 3
+          maxItems: 7
+          items:
+            type: string
         descriptorValues:
           $ref: "#/components/schemas/DescriptorValues"
 
@@ -319,6 +356,20 @@ components:
           type: string
         hierarchyBottom:
           type: string
+        hierarchyLevel04:
+          type: string
+        hierarchyLevel05:
+          type: string
+        hierarchyLevel06:
+          type: string
+        hierarchyLevel07:
+          type: string
+        hierarchyLevels:
+          type: array
+          minItems: 3
+          maxItems: 7
+          items:
+            type: string
         descriptorValues:
           $ref: "#/components/schemas/DescriptorValues"
 
@@ -377,6 +428,14 @@ components:
         hierarchyMiddle:
           type: string
         hierarchyBottom:
+          type: string
+        hierarchyLevel04:
+          type: string
+        hierarchyLevel05:
+          type: string
+        hierarchyLevel06:
+          type: string
+        hierarchyLevel07:
           type: string
         matchedHierarchyRuleId:
           type: integer

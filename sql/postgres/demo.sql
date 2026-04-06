@@ -58,6 +58,10 @@ CREATE TABLE demo_hierarchy_enrichment_rules (
   hierarchy_top      TEXT NOT NULL,
   hierarchy_middle   TEXT NOT NULL,
   hierarchy_bottom   TEXT NOT NULL,
+  hierarchy_level_04 TEXT NOT NULL DEFAULT '*',
+  hierarchy_level_05 TEXT NOT NULL DEFAULT '*',
+  hierarchy_level_06 TEXT NOT NULL DEFAULT '*',
+  hierarchy_level_07 TEXT NOT NULL DEFAULT '*',
   descriptive_value_a TEXT NOT NULL,
   descriptive_value_b TEXT,
   descriptive_value_c TEXT,
@@ -122,7 +126,11 @@ AS $$
         WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 'Corp'
         ELSE 'Deriv'
       END AS hierarchy_middle,
-      COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom
+      COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom,
+      COALESCE(NULLIF(BTRIM(o.fund_region_override), ''), o.ald_region) AS hierarchy_level_04,
+      COALESCE(NULLIF(BTRIM(o.fund_rating_band_override), ''), o.ald_rating_band) AS hierarchy_level_05,
+      '*'::TEXT AS hierarchy_level_06,
+      '*'::TEXT AS hierarchy_level_07
     FROM demo_observations o
   ),
   obs_kernel AS (
@@ -131,6 +139,14 @@ AS $$
     SELECT observation_id, 'middle'::TEXT AS feature_axis, hierarchy_middle AS feature_value FROM obs_hierarchy
     UNION ALL
     SELECT observation_id, 'bottom'::TEXT AS feature_axis, hierarchy_bottom AS feature_value FROM obs_hierarchy
+    UNION ALL
+    SELECT observation_id, 'l04'::TEXT AS feature_axis, hierarchy_level_04 AS feature_value FROM obs_hierarchy
+    UNION ALL
+    SELECT observation_id, 'l05'::TEXT AS feature_axis, hierarchy_level_05 AS feature_value FROM obs_hierarchy
+    UNION ALL
+    SELECT observation_id, 'l06'::TEXT AS feature_axis, hierarchy_level_06 AS feature_value FROM obs_hierarchy
+    UNION ALL
+    SELECT observation_id, 'l07'::TEXT AS feature_axis, hierarchy_level_07 AS feature_value FROM obs_hierarchy
   ),
   rule_kernel AS (
     SELECT hierarchy_rule_id, rule_id, 'top'::TEXT AS feature_axis, hierarchy_top AS feature_value
@@ -144,6 +160,22 @@ AS $$
     SELECT hierarchy_rule_id, rule_id, 'bottom'::TEXT AS feature_axis, hierarchy_bottom AS feature_value
     FROM demo_hierarchy_enrichment_rules
     WHERE hierarchy_bottom <> '*'
+    UNION ALL
+    SELECT hierarchy_rule_id, rule_id, 'l04'::TEXT AS feature_axis, hierarchy_level_04 AS feature_value
+    FROM demo_hierarchy_enrichment_rules
+    WHERE hierarchy_level_04 <> '*'
+    UNION ALL
+    SELECT hierarchy_rule_id, rule_id, 'l05'::TEXT AS feature_axis, hierarchy_level_05 AS feature_value
+    FROM demo_hierarchy_enrichment_rules
+    WHERE hierarchy_level_05 <> '*'
+    UNION ALL
+    SELECT hierarchy_rule_id, rule_id, 'l06'::TEXT AS feature_axis, hierarchy_level_06 AS feature_value
+    FROM demo_hierarchy_enrichment_rules
+    WHERE hierarchy_level_06 <> '*'
+    UNION ALL
+    SELECT hierarchy_rule_id, rule_id, 'l07'::TEXT AS feature_axis, hierarchy_level_07 AS feature_value
+    FROM demo_hierarchy_enrichment_rules
+    WHERE hierarchy_level_07 <> '*'
   ),
   obs_rule_space AS (
     SELECT
@@ -178,7 +210,10 @@ AS $$
              AND ok.feature_value = rk.feature_value THEN 1
             ELSE 0
           END
-        ) / 3.0, 0)
+        ) / GREATEST(
+          COALESCE(SUM(CASE WHEN rk.feature_axis IS NOT NULL THEN 1 ELSE 0 END), 0),
+          3
+        )::NUMERIC, 0)
       END AS score
     FROM obs_rule_space ors
     LEFT JOIN rule_kernel rk
@@ -221,6 +256,10 @@ RETURNS TABLE (
   hierarchy_top TEXT,
   hierarchy_middle TEXT,
   hierarchy_bottom TEXT,
+  hierarchy_level_04 TEXT,
+  hierarchy_level_05 TEXT,
+  hierarchy_level_06 TEXT,
+  hierarchy_level_07 TEXT,
   matched_hierarchy_rule_id SMALLINT,
   descriptor_01 TEXT,
   descriptor_02 TEXT,
@@ -285,7 +324,11 @@ AS $$
         WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 'Corp'
         ELSE 'Deriv'
       END AS hierarchy_middle,
-      COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom
+      COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom,
+      COALESCE(NULLIF(BTRIM(o.fund_region_override), ''), o.ald_region) AS hierarchy_level_04,
+      COALESCE(NULLIF(BTRIM(o.fund_rating_band_override), ''), o.ald_rating_band) AS hierarchy_level_05,
+      '*'::TEXT AS hierarchy_level_06,
+      '*'::TEXT AS hierarchy_level_07
     FROM demo_observations o
   ),
   hierarchy_candidates AS (
@@ -302,12 +345,24 @@ AS $$
       hr.descriptive_value_h,
       hr.descriptive_value_i,
       hr.descriptive_value_j,
-      ((hr.hierarchy_top <> '*')::INT + (hr.hierarchy_middle <> '*')::INT + (hr.hierarchy_bottom <> '*')::INT) AS specificity
+      (
+        (hr.hierarchy_top <> '*')::INT +
+        (hr.hierarchy_middle <> '*')::INT +
+        (hr.hierarchy_bottom <> '*')::INT +
+        (hr.hierarchy_level_04 <> '*')::INT +
+        (hr.hierarchy_level_05 <> '*')::INT +
+        (hr.hierarchy_level_06 <> '*')::INT +
+        (hr.hierarchy_level_07 <> '*')::INT
+      ) AS specificity
     FROM obs_hierarchy oh
     JOIN demo_hierarchy_enrichment_rules hr
       ON (hr.hierarchy_top = '*' OR hr.hierarchy_top = oh.hierarchy_top)
      AND (hr.hierarchy_middle = '*' OR hr.hierarchy_middle = oh.hierarchy_middle)
      AND (hr.hierarchy_bottom = '*' OR hr.hierarchy_bottom = oh.hierarchy_bottom)
+     AND (hr.hierarchy_level_04 = '*' OR hr.hierarchy_level_04 = oh.hierarchy_level_04)
+     AND (hr.hierarchy_level_05 = '*' OR hr.hierarchy_level_05 = oh.hierarchy_level_05)
+     AND (hr.hierarchy_level_06 = '*' OR hr.hierarchy_level_06 = oh.hierarchy_level_06)
+     AND (hr.hierarchy_level_07 = '*' OR hr.hierarchy_level_07 = oh.hierarchy_level_07)
   ),
   hierarchy_ranked AS (
     SELECT
@@ -351,6 +406,10 @@ AS $$
       ELSE 'Deriv'
     END AS hierarchy_middle,
     COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom,
+    COALESCE(NULLIF(BTRIM(o.fund_region_override), ''), o.ald_region) AS hierarchy_level_04,
+    COALESCE(NULLIF(BTRIM(o.fund_rating_band_override), ''), o.ald_rating_band) AS hierarchy_level_05,
+    '*'::TEXT AS hierarchy_level_06,
+    '*'::TEXT AS hierarchy_level_07,
     hm.hierarchy_rule_id AS matched_hierarchy_rule_id,
     hm.descriptive_value_a AS descriptor_01,
     hm.descriptive_value_b AS descriptor_02,
@@ -387,6 +446,10 @@ SELECT
   hr.hierarchy_top,
   hr.hierarchy_middle,
   hr.hierarchy_bottom,
+  hr.hierarchy_level_04,
+  hr.hierarchy_level_05,
+  hr.hierarchy_level_06,
+  hr.hierarchy_level_07,
   hr.descriptive_value_a
 FROM demo_hierarchy_enrichment_rules hr
 JOIN demo_rules r ON r.rule_id = hr.rule_id

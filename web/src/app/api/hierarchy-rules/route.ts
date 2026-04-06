@@ -8,6 +8,44 @@ function normHierarchyValue(value: unknown): string | null {
   return t === "*" ? "*" : t;
 }
 
+function normalizeHierarchyLevels(body: {
+  hierarchyTop?: unknown;
+  hierarchyMiddle?: unknown;
+  hierarchyBottom?: unknown;
+  hierarchyLevel04?: unknown;
+  hierarchyLevel05?: unknown;
+  hierarchyLevel06?: unknown;
+  hierarchyLevel07?: unknown;
+  hierarchyLevels?: unknown;
+}) {
+  const fromArray = Array.isArray(body.hierarchyLevels) ? body.hierarchyLevels : null;
+  const raw = [
+    body.hierarchyTop,
+    body.hierarchyMiddle,
+    body.hierarchyBottom,
+    body.hierarchyLevel04 ?? fromArray?.[3],
+    body.hierarchyLevel05 ?? fromArray?.[4],
+    body.hierarchyLevel06 ?? fromArray?.[5],
+    body.hierarchyLevel07 ?? fromArray?.[6],
+  ];
+  const parsed = raw.map((v, idx) => {
+    if (idx < 3) return normHierarchyValue(v);
+    if (v === undefined || v === null) return "*";
+    const normalized = normHierarchyValue(v);
+    return normalized ?? "*";
+  });
+  return {
+    hierarchyTop: parsed[0],
+    hierarchyMiddle: parsed[1],
+    hierarchyBottom: parsed[2],
+    hierarchyLevel04: parsed[3]!,
+    hierarchyLevel05: parsed[4]!,
+    hierarchyLevel06: parsed[5]!,
+    hierarchyLevel07: parsed[6]!,
+    hierarchyLevels: parsed as string[],
+  };
+}
+
 export async function GET() {
   const rows = await prisma.hierarchyRule.findMany({ include: { rule: true }, orderBy: { id: "asc" } });
   return NextResponse.json({
@@ -18,6 +56,19 @@ export async function GET() {
       hierarchyTop: r.hierarchyTop,
       hierarchyMiddle: r.hierarchyMiddle,
       hierarchyBottom: r.hierarchyBottom,
+      hierarchyLevel04: r.hierarchyLevel04,
+      hierarchyLevel05: r.hierarchyLevel05,
+      hierarchyLevel06: r.hierarchyLevel06,
+      hierarchyLevel07: r.hierarchyLevel07,
+      hierarchyLevels: [
+        r.hierarchyTop,
+        r.hierarchyMiddle,
+        r.hierarchyBottom,
+        r.hierarchyLevel04,
+        r.hierarchyLevel05,
+        r.hierarchyLevel06,
+        r.hierarchyLevel07,
+      ],
       descriptorValues: [
         r.descriptor01,
         r.descriptor02,
@@ -39,6 +90,11 @@ type PostBody = {
   hierarchyTop?: unknown;
   hierarchyMiddle?: unknown;
   hierarchyBottom?: unknown;
+  hierarchyLevel04?: unknown;
+  hierarchyLevel05?: unknown;
+  hierarchyLevel06?: unknown;
+  hierarchyLevel07?: unknown;
+  hierarchyLevels?: unknown;
   descriptorValues?: unknown;
 };
 
@@ -51,9 +107,7 @@ export async function POST(request: Request) {
   }
 
   const ruleId = typeof body.ruleId === "number" ? body.ruleId : Number(body.ruleId);
-  const hierarchyTop = normHierarchyValue(body.hierarchyTop);
-  const hierarchyMiddle = normHierarchyValue(body.hierarchyMiddle);
-  const hierarchyBottom = normHierarchyValue(body.hierarchyBottom);
+  const hierarchy = normalizeHierarchyLevels(body);
   const descriptorValuesRaw = Array.isArray(body.descriptorValues) ? body.descriptorValues : [];
   const descriptorValues = Array.from({ length: 10 }, (_, idx) => {
     const v = descriptorValuesRaw[idx];
@@ -65,9 +119,9 @@ export async function POST(request: Request) {
   if (!Number.isInteger(ruleId) || ruleId < 1) {
     return NextResponse.json({ error: "ruleId must be a positive integer" }, { status: 400 });
   }
-  if (!hierarchyTop || !hierarchyMiddle || !hierarchyBottom || !descriptorValues[0]) {
+  if (!hierarchy.hierarchyTop || !hierarchy.hierarchyMiddle || !hierarchy.hierarchyBottom || !descriptorValues[0]) {
     return NextResponse.json(
-      { error: "hierarchyTop, hierarchyMiddle, hierarchyBottom and descriptorValues[0] are required" },
+      { error: "hierarchyTop, hierarchyMiddle, hierarchyBottom and descriptorValues[0] are required; hierarchyLevel04..07 are optional" },
       { status: 400 },
     );
   }
@@ -80,9 +134,13 @@ export async function POST(request: Request) {
   const created = await prisma.hierarchyRule.create({
     data: {
       ruleId,
-      hierarchyTop,
-      hierarchyMiddle,
-      hierarchyBottom,
+      hierarchyTop: hierarchy.hierarchyTop,
+      hierarchyMiddle: hierarchy.hierarchyMiddle,
+      hierarchyBottom: hierarchy.hierarchyBottom,
+      hierarchyLevel04: hierarchy.hierarchyLevel04,
+      hierarchyLevel05: hierarchy.hierarchyLevel05,
+      hierarchyLevel06: hierarchy.hierarchyLevel06,
+      hierarchyLevel07: hierarchy.hierarchyLevel07,
       descriptor01: descriptorValues[0],
       descriptor02: descriptorValues[1],
       descriptor03: descriptorValues[2],
@@ -106,6 +164,19 @@ export async function POST(request: Request) {
         hierarchyTop: created.hierarchyTop,
         hierarchyMiddle: created.hierarchyMiddle,
         hierarchyBottom: created.hierarchyBottom,
+        hierarchyLevel04: created.hierarchyLevel04,
+        hierarchyLevel05: created.hierarchyLevel05,
+        hierarchyLevel06: created.hierarchyLevel06,
+        hierarchyLevel07: created.hierarchyLevel07,
+        hierarchyLevels: [
+          created.hierarchyTop,
+          created.hierarchyMiddle,
+          created.hierarchyBottom,
+          created.hierarchyLevel04,
+          created.hierarchyLevel05,
+          created.hierarchyLevel06,
+          created.hierarchyLevel07,
+        ],
         descriptorValues: [
           created.descriptor01,
           created.descriptor02,

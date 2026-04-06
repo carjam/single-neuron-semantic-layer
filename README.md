@@ -42,7 +42,7 @@ The UI can render many columns for diagnostics, but the core intuition is straig
 
 **Qualitative → numeric.** Vendor and fund-side fields are **categorical** (issuer class, region, rating band, …). **Kernelization** maps each row’s **effective** labels into a **sparse binary vector** $d_j \in \{0,1\}^M$ over a **fixed dictionary** of atomic features (e.g. `fi_corporate`, `region_emea`). That step is the bridge from **qualitative data** to something algebra can consume—without pretending the categories were already real numbers.
 
-**Matrix-style scoring under constraints.** Each observation is mapped to a normalized hierarchy (`hierarchy_top`, `hierarchy_middle`, `hierarchy_bottom`), kernelized into sparse axis-value features, then scored against kernelized hierarchy rules via sparse dot-product. Compatibility constraints still apply (`*` means "axis not specified"; non-wildcard mismatches are rejected). The resulting score is:
+**Matrix-style scoring under constraints.** Each observation is mapped to a normalized hierarchy (levels 1..7; levels 1..3 are commonly used), kernelized into sparse axis-value features, then scored against kernelized hierarchy rules via sparse dot-product. Compatibility constraints still apply (`*` means "axis not specified"; non-wildcard mismatches are rejected). The resulting score is:
 - top contributes `1` only on exact match
 - middle contributes `1` only if non-wildcard and exact (`*` contributes `0`)
 - bottom contributes `1` only if non-wildcard and exact (`*` contributes `0`)
@@ -69,7 +69,7 @@ For every **security** in scope, the engine **chooses exactly one subject option
 
 **Notation.** $N$ = number of outcomes (workstreams). For observation $j$, hierarchy matching yields a score vector $(s_{1j}, \ldots, s_{Nj})$ where each $s_{ij}$ is the maximum compatibility score among hierarchy rows mapped to outcome $i$.
 
-**Hierarchy score (sparse kernel dot-product under constraints).** For each hierarchy rule $r$ and observation $j$, build sparse vectors over hierarchy axes and compute:
+**Hierarchy score (sparse kernel dot-product under constraints).** For each hierarchy rule $r$ and observation $j$, build sparse vectors over hierarchy axes (up to 7 levels) and compute:
 
 $$
 \text{score}_{rj} =
@@ -92,6 +92,17 @@ $$
 with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the demo). That is winner-take-all gating: no softmax, no temperature, no gradient-based learning.
 
 **Problem class (precision).** This is **not** LP, QP, or MILP in the sense of optimizing a continuous or mixed-integer decision $x$ subject to constraints. The mathematics is **linear functionals** of fixed binary $d_j$ plus **discrete maximization** over a **finite** label set—fast to evaluate and easy to audit, at the cost of no built-in uncertainty quantification.
+
+### Runtime practicality at large scale
+
+This approach is practical for real-time enrichment on large datasets because runtime work is reduced to sparse feature matching and dot-product-style aggregation, rather than repeated row-by-row string-heavy rule evaluation. In operational terms: keep rule kernels compact, keep observation features pre-normalized, and let indexed joins/aggregations do the heavy lifting.
+
+- **At-a-glance flow:** ingest observation -> apply fund overrides -> derive effective hierarchy -> kernelize sparse features -> sparse score aggregation vs rule kernels -> argmax gate -> attach descriptors from winning hierarchy rule.
+- **Why it scales:** sparse kernels mean each observation activates only a small subset of features, so scoring cost grows with active features, not with the full rule text surface.
+- **Latency control:** precompute or incrementally refresh observation feature projections; avoid rebuilding kernels from raw text for every request.
+- **Database fit:** B-tree indexes on join keys (`observation_id`, `rule_id`, feature axis/value) and selective entry points (TVFs/endpoints with required filters) keep plans stable under load.
+- **Throughput pattern:** batch scoring for changed observations and cache immutable rule kernels between rule-set versions.
+- **Operational guardrails:** version rule snapshots and record which snapshot scored each row so results stay explainable after rule edits.
 
 ### Reproducibility
 
@@ -130,7 +141,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 | **Fund semantic layer (`fund_*_override`)** | Nullable per column; when **non-blank**, replaces the corresponding `ald_*` for **scoring only** (vendor columns remain in the enriched output for lineage). |
 | **Effective (implicit)** | `COALESCE(NULLIF(TRIM(override), ''), ald_value)` per dimension—this is what **kernelization** sees. |
 | **Kernelized features** | Sparse 0/1 atoms over **effective** labels: `fi_sovereign`, `fi_corporate`, `region_emea`, `region_na`, `rating_ig`. |
-| **Hierarchy enrichment rules** | User-maintained match rows with `*` wildcard support across `hierarchy_top`, `hierarchy_middle`, `hierarchy_bottom`; sparse kernel dot-product score is computed per rule and max-selected per outcome. |
+| **Hierarchy enrichment rules** | User-maintained match rows with `*` wildcard support across `hierarchy_top`, `hierarchy_middle`, `hierarchy_bottom`, `hierarchy_level_04..07`; sparse kernel dot-product score is computed per rule and max-selected per outcome. |
 | **Decision outcomes** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA). |
 | **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: `ald_*`, `fund_*_override`, **`effective_*`**, matrix-constraint scores, `winning_workstream`, wildcard-resolved semantic descriptors. |
 

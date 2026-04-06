@@ -15,6 +15,13 @@ function normHierarchyValue(value: unknown): string | null {
   return t === "*" ? "*" : t;
 }
 
+function normalizeOptionalHierarchyLevel(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return "*";
+  const v = normHierarchyValue(value);
+  return v ?? "*";
+}
+
 export async function GET(_request: Request, context: Ctx) {
   const { ruleId: raw } = await context.params;
   const ruleId = parseRuleId(raw);
@@ -35,6 +42,19 @@ export async function GET(_request: Request, context: Ctx) {
       hierarchyTop: row.hierarchyTop,
       hierarchyMiddle: row.hierarchyMiddle,
       hierarchyBottom: row.hierarchyBottom,
+      hierarchyLevel04: row.hierarchyLevel04,
+      hierarchyLevel05: row.hierarchyLevel05,
+      hierarchyLevel06: row.hierarchyLevel06,
+      hierarchyLevel07: row.hierarchyLevel07,
+      hierarchyLevels: [
+        row.hierarchyTop,
+        row.hierarchyMiddle,
+        row.hierarchyBottom,
+        row.hierarchyLevel04,
+        row.hierarchyLevel05,
+        row.hierarchyLevel06,
+        row.hierarchyLevel07,
+      ],
       descriptorValues: [
         row.descriptor01,
         row.descriptor02,
@@ -56,6 +76,11 @@ type PatchBody = {
   hierarchyTop?: unknown;
   hierarchyMiddle?: unknown;
   hierarchyBottom?: unknown;
+  hierarchyLevel04?: unknown;
+  hierarchyLevel05?: unknown;
+  hierarchyLevel06?: unknown;
+  hierarchyLevel07?: unknown;
+  hierarchyLevels?: unknown;
   descriptorValues?: unknown;
 };
 
@@ -78,6 +103,10 @@ export async function PATCH(request: Request, context: Ctx) {
     hierarchyTop?: string;
     hierarchyMiddle?: string;
     hierarchyBottom?: string;
+    hierarchyLevel04?: string;
+    hierarchyLevel05?: string;
+    hierarchyLevel06?: string;
+    hierarchyLevel07?: string;
     descriptor01?: string;
     descriptor02?: string | null;
     descriptor03?: string | null;
@@ -117,6 +146,16 @@ export async function PATCH(request: Request, context: Ctx) {
     if (!v) return NextResponse.json({ error: "hierarchyBottom must be a non-empty string" }, { status: 400 });
     data.hierarchyBottom = v;
   }
+  const levelArray = Array.isArray(body.hierarchyLevels) ? body.hierarchyLevels : null;
+  const level04 = normalizeOptionalHierarchyLevel(body.hierarchyLevel04 ?? levelArray?.[3]);
+  const level05 = normalizeOptionalHierarchyLevel(body.hierarchyLevel05 ?? levelArray?.[4]);
+  const level06 = normalizeOptionalHierarchyLevel(body.hierarchyLevel06 ?? levelArray?.[5]);
+  const level07 = normalizeOptionalHierarchyLevel(body.hierarchyLevel07 ?? levelArray?.[6]);
+  if (level04 !== undefined) data.hierarchyLevel04 = level04;
+  if (level05 !== undefined) data.hierarchyLevel05 = level05;
+  if (level06 !== undefined) data.hierarchyLevel06 = level06;
+  if (level07 !== undefined) data.hierarchyLevel07 = level07;
+
   if (body.descriptorValues !== undefined) {
     if (!Array.isArray(body.descriptorValues)) {
       return NextResponse.json({ error: "descriptorValues must be an array" }, { status: 400 });
@@ -160,6 +199,19 @@ export async function PATCH(request: Request, context: Ctx) {
         hierarchyTop: updated.hierarchyTop,
         hierarchyMiddle: updated.hierarchyMiddle,
         hierarchyBottom: updated.hierarchyBottom,
+        hierarchyLevel04: updated.hierarchyLevel04,
+        hierarchyLevel05: updated.hierarchyLevel05,
+        hierarchyLevel06: updated.hierarchyLevel06,
+        hierarchyLevel07: updated.hierarchyLevel07,
+        hierarchyLevels: [
+          updated.hierarchyTop,
+          updated.hierarchyMiddle,
+          updated.hierarchyBottom,
+          updated.hierarchyLevel04,
+          updated.hierarchyLevel05,
+          updated.hierarchyLevel06,
+          updated.hierarchyLevel07,
+        ],
         descriptorValues: [
           updated.descriptor01,
           updated.descriptor02,
