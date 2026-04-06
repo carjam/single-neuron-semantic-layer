@@ -1,5 +1,7 @@
 # Case study: In-database semantic layer and rule scoring
 
+This document is the **production and organizational** narrative (problem, constraints, scale, integrations). For **runnable SQL**, **sample inputs/outputs**, and the **linear-algebra / argmax-gate primer**, start with the repo [`README.md`](../README.md).
+
 ## Summary
 
 Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregate upstream feeds. Much of the “expert knowledge” lived in spreadsheets or in analysts’ heads. Reporting still depended heavily on a **legacy database-centric** system that was trusted and slow to replace. The goal was to give users a **maintainable semantic layer** (dimensions and labels they owned) while **merging that metadata with daily observations inside the database** so existing reporting pipelines could consume enriched rows without a big-bang rewrite.
@@ -15,23 +17,10 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 1. **Semantic layer in the database + services + UI**  
    Experts create and maintain dimensions and descriptor values through a web UI; data is stored relationally and exposed via APIs (and optionally Excel/Power Query as a thin client).
 
-2. **Rules as a matrix (expert knowledge `K`)**  
-   Each possible **decision outcome** is a row. Features (encoded from qualitative dimensions) are columns. Cell values are **weights**, with rows normalized (e.g., row sums to 1) so scores are comparable across decisions.
+2. **In-database scoring and enrichment**  
+   User-maintained **rules** and **descriptor columns** (the “white” semantic fields) were combined with daily **observations** inside SQL: qualitative fields were **kernelized** to a fixed binary feature dictionary, **expert weights** formed rows of a matrix $K$, scores were **linear** in those features, outcomes were chosen with **argmax** (plus **waterfall / tie precedence** in production), and results were reshaped (**wide scores → `UNPIVOT`**) so consumers received **one enriched row per observation**.  
 
-3. **Kernelization of qualitative data**  
-   Upstream fields are categorical text (labels, hierarchies, wildcards in the semantic layer UI). Before scoring, each observation is mapped into a **fixed dictionary of atomic binary features** in $\mathbb{R}^M$: a sparse **0/1 vector** with one coordinate per matchable dimension. That avoids repeated string logic and `LIKE`/`OR` explosions on the large observation table; the mapping is maintained where the rule set lives (small), not recomputed per row with heavy parsing.
-
-4. **Variable space vs subject space**  
-   **Variable space** (column space): stack observations as rows of a matrix $D$; each row $d_j \in \mathbb{R}^M$ is one ticket (or loan, or trade) expressed in shared feature coordinates. **Expert rows** $k_i$ of $K$ live in the **same** $\mathbb{R}^M$, so the score is a standard inner product $\langle k_i, d_j\rangle$ (implemented as a sum of weights over **active** coordinates). **Subject space** is the dual arrangement: each **feature** is a vector over observations (the transpose of $D$). Same inner products; different layout for intuition—e.g., seeing which tickets fire the same dimensions together.
-
-5. **Score = linear combination**  
-   Sparse dot products per $(i,j)$ match matrix multiply $K D^\top$ (up to layout). SQL expresses this with keyed joins and aggregates rather than dense linear algebra APIs.
-
-6. **Similarity to a tiny neural network**  
-   After kernelization, each observation is a fixed-length vector $d \in \mathbb{R}^M$. Multiplying by $K$ is a **linear map** $\mathbb{R}^M \to \mathbb{R}^N$: one real score per outcome—the same **shape** as **logits** from a single fully connected layer (here there is no separate bias vector and no nonlinearity on those scores). The decision step applies **argmax** / a **hard max** over that $N$-vector: **winner-take-all gating** that picks one class. There is **no softmax** and **no gradient learning**; $K$ is **expert-maintained**. In production, **tie-break and waterfall precedence** sat on top of the same max idea.
-
-7. **Presentation layer**  
-   Score vectors were brought to a **wide** layout (one column per outcome, short names like `a,b,c` to limit string overhead), then **`UNPIVOT`** (or the equivalent long shape) so each observation had explicit `(outcome, score)` rows before the max step. The **final deliverable** joined **raw observation attributes** with the **winning decision** and **user-maintained descriptor columns** (queues, SLAs, cost centers—analogous to the “white” semantic columns in the spreadsheet UI) on **one row per observation** for legacy reports and BI tools.
+   **Formal notation** ($s_{ij}=\langle k_i,d_j\rangle$, problem class vs LP/QP, gate semantics), **reproducibility**, and a **worked numeric example** live in [`README.md`](../README.md) so this file stays focused on context and operations.
 
 ## Constraints and non-goals
 
@@ -49,10 +38,6 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 
 - **Enterprise GraphQL** for federated access.
 - **Power BI** and **Excel (Power Query)** for analyst workflows.
-
-## What the synthetic demos in this repo show
-
-They implement a **tiny** pipeline: **qualitative feed** → **kernelization** into sparse binary features → **variable-space** views of $D$ and $K$ → **subject-space** transpose (features × tickets) → **linear scores** (matrix-style, NN **logit-shaped**) → **wide score vector** → **`UNPIVOT`** / long scores → **argmax gate** → **`ENRICHED_OBSERVATION_ROW`** (raw feed + winning team + semantic descriptors). All data is fictional.
 
 ## Lessons (still relevant)
 

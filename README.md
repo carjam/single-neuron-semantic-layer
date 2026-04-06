@@ -6,7 +6,7 @@ This repository is a **public, synthetic** companion to a production system I de
 
 ## What this repo is for
 
-- **Interview narrative:** Problem, constraints, design, and lessons in one place (`docs/case-study.md`).
+- **Interview narrative:** Production context, constraints, performance, integrations, and lessons in `docs/case-study.md` (this README holds the **technical primer**, **worked example**, and quick starts).
 - **Technical proof of familiarity:** You can run the demo locally and step through the SQL.
 - **Not a reproduction:** No proprietary schemas, data, or code from the employer.
 
@@ -62,7 +62,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 
 | Path | Purpose |
 |------|--------|
-| `docs/case-study.md` | Case study: context, design, performance, integrations |
+| `docs/case-study.md` | Production / org narrative: problem, approach summary, constraints, performance, integrations, lessons; defers equations and demo tables to this README |
 | `sql/postgres/demo.sql` | End-to-end toy example (PostgreSQL) |
 | `sql/sqlserver/demo.sql` | Same idea, T-SQL flavored (closer to the original post) |
 
