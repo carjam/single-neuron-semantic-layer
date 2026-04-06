@@ -5,6 +5,9 @@
   Variable space: each observation is a vector in R^M (rows of D).
   Subject space: each feature is a vector over observations (transpose of D).
   Kernelization: qualitative tier/region/priority -> sparse 0/1 features in R^M.
+
+  NN analogy: K is a linear map R^M -> R^N (logit-like scores, no activation);
+  argmax over scores is a hard max / winner-take-all gate (plus tie-break).
 */
 
 SET NOCOUNT ON;
@@ -121,7 +124,31 @@ LEFT JOIN #observations o ON o.observation_id = ofe.observation_id
 GROUP BY fe.feature_id, fe.feature_code
 ORDER BY fe.feature_id;
 
-/* --- Scores: <k_i, d_j> via sparse join --- */
+/* --- Linear layer: pre-max scores (sparse <k_i, d_j>) --- */
+;WITH scores AS (
+  SELECT
+    o.observation_id,
+    o.ticket_ref,
+    r.rule_id,
+    r.decision_code,
+    SUM(rw.weight) AS score
+  FROM #observations o
+  INNER JOIN #observation_features ofe ON ofe.observation_id = o.observation_id
+  INNER JOIN #rule_weights rw ON rw.feature_id = ofe.feature_id
+  INNER JOIN #rules r ON r.rule_id = rw.rule_id
+  GROUP BY o.observation_id, o.ticket_ref, r.rule_id, r.decision_code
+)
+SELECT
+  'LINEAR_LAYER_SCORES' AS section,
+  observation_id,
+  ticket_ref,
+  rule_id,
+  decision_code,
+  score AS pre_max_score
+FROM scores
+ORDER BY observation_id, rule_id;
+
+/* --- Argmax gate: one winning outcome per observation --- */
 ;WITH scores AS (
   SELECT
     o.observation_id,
@@ -142,11 +169,11 @@ ranked AS (
   FROM scores s
 )
 SELECT
-  'WINNING_DECISION' AS section,
+  'ARGMAX_GATE' AS section,
   observation_id,
   ticket_ref,
   decision_code AS winning_team,
-  score
+  score AS winning_score
 FROM ranked
 WHERE rn = 1
 ORDER BY observation_id;

@@ -15,6 +15,13 @@
 --   Upstream delivers qualitative labels (tier, region, priority). We map
 --   them into a fixed sparse 0/1 representation in R^M so linear weights
 --   (rows of K) apply without string matching on the hot path.
+--
+-- NN analogy (interpretation, not training):
+--   After kernelization, each observation is a feature vector d in R^M.
+--   Applying K is a linear map R^M -> R^N: one score per outcome (same shape as
+--   "logits" from a single linear layer — no bias term here, no activation).
+--   The final step takes argmax over those scores — a hard max / winner-take-all
+--   gate. (Production also layered precedence "waterfall" rules on top.)
 -- =============================================================================
 
 BEGIN;
@@ -150,7 +157,34 @@ GROUP BY fe.feature_id, fe.feature_code
 ORDER BY fe.feature_id;
 
 -- ---------------------------------------------------------------------------
--- Scores: sparse dot product <k_i, d_j> = sum_m k_im * d_jm
+-- Linear layer: s_ij = <k_i, d_j> = sum_m k_im * d_jm  (sparse; same as one
+-- column of K * D^T). Each column j is an N-vector of pre-max "scores".
+-- ---------------------------------------------------------------------------
+WITH scores AS (
+  SELECT
+    o.observation_id,
+    o.ticket_ref,
+    r.rule_id,
+    r.decision_code,
+    SUM(rw.weight) AS score
+  FROM demo_observations o
+  JOIN demo_observation_features ofe ON ofe.observation_id = o.observation_id
+  JOIN demo_rule_weights rw ON rw.feature_id = ofe.feature_id
+  JOIN demo_rules r ON r.rule_id = rw.rule_id
+  GROUP BY o.observation_id, o.ticket_ref, r.rule_id, r.decision_code
+)
+SELECT
+  'LINEAR_LAYER_SCORES' AS section,
+  observation_id,
+  ticket_ref,
+  rule_id,
+  decision_code,
+  score AS pre_max_score
+FROM scores
+ORDER BY observation_id, rule_id;
+
+-- ---------------------------------------------------------------------------
+-- Gating: argmax over outcomes (hard max). rn = 1 is the winning class.
 -- ---------------------------------------------------------------------------
 WITH scores AS (
   SELECT
@@ -172,11 +206,11 @@ ranked AS (
   FROM scores
 )
 SELECT
-  'WINNING_DECISION' AS section,
+  'ARGMAX_GATE' AS section,
   observation_id,
   ticket_ref,
   decision_code AS winning_team,
-  score
+  score AS winning_score
 FROM ranked
 WHERE rn = 1
 ORDER BY observation_id;

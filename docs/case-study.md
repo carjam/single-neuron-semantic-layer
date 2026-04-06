@@ -27,8 +27,11 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 5. **Score = linear combination**  
    Sparse dot products per $(i,j)$ match matrix multiply $K D^\top$ (up to layout). SQL expresses this with keyed joins and aggregates rather than dense linear algebra APIs.
 
-6. **Action layer**  
-   For the main use case, the **argmax** over decisions selected the winning label; a **precedence / waterfall** resolved ties and business ordering. Results were **unpivoted** back to **row-shaped** output matching how consumers expected to see fact rows.
+6. **Similarity to a tiny neural network**  
+   After kernelization, each observation is a fixed-length vector $d \in \mathbb{R}^M$. Multiplying by $K$ is a **linear map** $\mathbb{R}^M \to \mathbb{R}^N$: one real score per outcome—the same **shape** as **logits** from a single fully connected layer (here there is no separate bias vector and no nonlinearity on those scores). The decision step applies **argmax** / a **hard max** over that $N$-vector: **winner-take-all gating** that picks one class. There is **no softmax** and **no gradient learning**; $K$ is **expert-maintained**. In production, **tie-break and waterfall precedence** sat on top of the same max idea.
+
+7. **Presentation layer**  
+   Results were **unpivoted** back to **row-shaped** output matching how consumers expected to see fact rows.
 
 ## Constraints and non-goals
 
@@ -49,13 +52,14 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 
 ## What the synthetic demos in this repo show
 
-They implement a **tiny** pipeline: **qualitative feed** → **kernelization** into sparse binary features → **variable-space** views of $D$ and $K$ → **subject-space** transpose (features × tickets) → **scores** $\langle k_i, d_j\rangle$ → **winning decision**. All data is fictional.
+They implement a **tiny** pipeline: **qualitative feed** → **kernelization** into sparse binary features → **variable-space** views of $D$ and $K$ → **subject-space** transpose (features × tickets) → **linear scores** (matrix-style, NN **logit-shaped**) → **argmax gate** (hard **max** over outcomes). All data is fictional.
 
 ## Lessons (still relevant)
 
 - **Separating** “small, expert-maintained rule set” from “huge observation stream” drives the **kernelization + matrix-style** join pattern.
 - **Contract-first access** (required parameters, typed TVPs) is a lever for **performance and safety** on shared fact tables.
 - The same pipeline pattern can support other **post-score actions** (not only max/waterfall), e.g., diagnostics or drift-style checks, with different output layers.
+- Framing scores as a **linear layer** and the decision as **argmax** communicates quickly to ML-literate stakeholders—while keeping clear that **$K$ is curated**, not gradient-learned.
 
 ## Reference
 
