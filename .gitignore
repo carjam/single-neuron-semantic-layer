@@ -4,3 +4,6 @@ Thumbs.db
 .env
 .idea/
 .vscode/
+
+# Local HTML preview (open in browser; regenerate with scripts/render_readme_preview.py)
+README.preview.html
