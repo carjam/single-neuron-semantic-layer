@@ -236,7 +236,7 @@ Opening `README.md` in a browser as a file usually shows **plain text**. Use you
 ## After you create a GitHub remote
 
 ```bash
-cd semantic-layer-sql-expert-system
+cd single-neuron-semantic-layer
 git init
 git add .
 git commit -m "Initial commit: case study and synthetic SQL demos"
