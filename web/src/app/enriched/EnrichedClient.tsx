@@ -65,6 +65,87 @@ const observationColumns: ObsCol[] = [
     mono: true,
     render: (r) => r.activeFeatureIds.join(", ") || "—",
   },
+  { id: "hier_top", label: "Hierarchy top", minWidth: "5rem", maxWidth: "8rem", render: (r) => r.hierarchyTop },
+  { id: "hier_mid", label: "Hierarchy middle", minWidth: "6rem", maxWidth: "9rem", render: (r) => r.hierarchyMiddle },
+  { id: "hier_bot", label: "Hierarchy bottom", minWidth: "6rem", maxWidth: "10rem", render: (r) => r.hierarchyBottom },
+  {
+    id: "hier_rule",
+    label: "Matched hierarchy rule",
+    minWidth: "5rem",
+    maxWidth: "9rem",
+    mono: true,
+    render: (r) => (r.matchedHierarchyRuleId === null ? "—" : String(r.matchedHierarchyRuleId)),
+  },
+  {
+    id: "descriptive_value_a",
+    label: "Descriptor 01",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[0] ?? "—",
+  },
+  {
+    id: "descriptor_02",
+    label: "Descriptor 02",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[1] ?? "—",
+  },
+  {
+    id: "descriptor_03",
+    label: "Descriptor 03",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[2] ?? "—",
+  },
+  {
+    id: "descriptor_04",
+    label: "Descriptor 04",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[3] ?? "—",
+  },
+  {
+    id: "descriptor_05",
+    label: "Descriptor 05",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[4] ?? "—",
+  },
+  {
+    id: "descriptor_06",
+    label: "Descriptor 06",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[5] ?? "—",
+  },
+  {
+    id: "descriptor_07",
+    label: "Descriptor 07",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[6] ?? "—",
+  },
+  {
+    id: "descriptor_08",
+    label: "Descriptor 08",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[7] ?? "—",
+  },
+  {
+    id: "descriptor_09",
+    label: "Descriptor 09",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[8] ?? "—",
+  },
+  {
+    id: "descriptor_10",
+    label: "Descriptor 10",
+    minWidth: "7rem",
+    maxWidth: "12rem",
+    render: (r) => r.descriptorValues[9] ?? "—",
+  },
 ];
 
 type EnrichCol = {
@@ -75,7 +156,6 @@ type EnrichCol = {
   first?: boolean;
   mono?: boolean;
   render: (r: EnrichedObservationRow) => string;
-  missingDescriptor?: boolean;
 };
 
 const enrichColumns: EnrichCol[] = [
@@ -92,30 +172,16 @@ const enrichColumns: EnrichCol[] = [
     render: (r) => r.winningDecisionCode,
   },
   { id: "win_score", label: "Winning score", minWidth: "4.5rem", maxWidth: "7rem", render: (r) => r.winningScore.toFixed(2) },
-  {
-    id: "routing_queue",
-    label: "Routing queue",
-    minWidth: "6.5rem",
-    maxWidth: "11rem",
-    missingDescriptor: true,
-    render: (r) => r.descriptor?.routingQueue ?? "—",
-  },
-  {
-    id: "sla_bucket",
-    label: "SLA bucket",
-    minWidth: "5.5rem",
-    maxWidth: "9rem",
-    missingDescriptor: true,
-    render: (r) => r.descriptor?.slaBucket ?? "—",
-  },
-  {
-    id: "cost_center",
-    label: "Cost center (book)",
-    minWidth: "6.5rem",
-    maxWidth: "11rem",
-    missingDescriptor: true,
-    render: (r) => r.descriptor?.costCenter ?? "—",
-  },
+  { id: "desc_01", label: "Descriptor 01", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[0] ?? "—" },
+  { id: "desc_02", label: "Descriptor 02", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[1] ?? "—" },
+  { id: "desc_03", label: "Descriptor 03", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[2] ?? "—" },
+  { id: "desc_04", label: "Descriptor 04", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[3] ?? "—" },
+  { id: "desc_05", label: "Descriptor 05", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[4] ?? "—" },
+  { id: "desc_06", label: "Descriptor 06", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[5] ?? "—" },
+  { id: "desc_07", label: "Descriptor 07", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[6] ?? "—" },
+  { id: "desc_08", label: "Descriptor 08", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[7] ?? "—" },
+  { id: "desc_09", label: "Descriptor 09", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[8] ?? "—" },
+  { id: "desc_10", label: "Descriptor 10", minWidth: "7rem", maxWidth: "12rem", render: (r) => r.descriptorValues[9] ?? "—" },
 ];
 
 const obsHeaderClass =
@@ -237,20 +303,17 @@ export function EnrichedClient({ initialRows }: { initialRows: EnrichedObservati
                           </div>
                         </td>
                       ))}
-                      {enrichColumns.map((col) => {
-                        const missing = col.missingDescriptor && !r.descriptor;
-                        return (
-                          <td
-                            key={col.id}
-                            className={`${col.first ? enrichFirstCellClass : enrichCellBase} ${col.mono ? "font-mono text-[11px]" : ""} ${missing ? "italic text-amber-900 dark:text-amber-200" : ""}`}
-                            style={colShellStyle(col.minWidth)}
-                          >
-                            <div style={wrapStyle(col.maxWidth)} className="break-words">
-                              {col.render(r)}
-                            </div>
-                          </td>
-                        );
-                      })}
+                      {enrichColumns.map((col) => (
+                        <td
+                          key={col.id}
+                          className={`${col.first ? enrichFirstCellClass : enrichCellBase} ${col.mono ? "font-mono text-[11px]" : ""}`}
+                          style={colShellStyle(col.minWidth)}
+                        >
+                          <div style={wrapStyle(col.maxWidth)} className="break-words">
+                            {col.render(r)}
+                          </div>
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>

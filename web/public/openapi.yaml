@@ -1,126 +1,122 @@
-openapi: 3.0.3
+﻿openapi: 3.0.3
 info:
   title: Semantic layer demo API
   description: |
-    REST surface for the portfolio toy UI: **descriptors** (per-outcome routing, SLA, and book metadata),
-    **rules** (outcomes / workstreams), and **enriched observations** (kernelization → scores → argmax → joined descriptors).
-    JSON responses use `application/json` unless noted.
-  version: 1.0.0
+    REST API for the toy UI.
+    Primary model is hierarchy-driven enrichment:
+    observations -> effective hierarchy -> wildcard rule matching -> runtime match-strength scores -> argmax -> enriched row.
+  version: 1.1.0
 
 servers:
   - url: /
     description: Current host (e.g. http://localhost:3000)
 
 tags:
-  - name: Descriptors
-    description: CRUD for semantic attributes keyed by outcome (`rule_id`).
+  - name: HierarchyRules
+    description: CRUD for hierarchy matching rules (rule_id + 3-level wildcard pattern + descriptor_01..10).
   - name: Rules
-    description: Outcome keys and whether a descriptor row exists.
+    description: Outcome/workstream reference data.
   - name: Enriched
-    description: Read-only computed rows and CSV export.
+    description: Computed enriched rows (JSON/CSV).
 
 paths:
-  /api/descriptors:
+  /api/hierarchy-rules:
     get:
-      tags: [Descriptors]
-      summary: List all descriptors
-      operationId: listDescriptors
+      tags: [HierarchyRules]
+      summary: List hierarchy rules
+      operationId: listHierarchyRules
       responses:
         "200":
-          description: Ordered by `ruleId` ascending.
+          description: Ordered by hierarchyRuleId asc
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DescriptorListResponse"
+                $ref: "#/components/schemas/HierarchyRuleListResponse"
     post:
-      tags: [Descriptors]
-      summary: Create a descriptor for a rule
-      description: Fails with 409 if a descriptor already exists for the rule (use PATCH).
-      operationId: createDescriptor
+      tags: [HierarchyRules]
+      summary: Create hierarchy rule
+      operationId: createHierarchyRule
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DescriptorCreate"
+              $ref: "#/components/schemas/HierarchyRuleCreate"
       responses:
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DescriptorSingleResponse"
+                $ref: "#/components/schemas/HierarchyRuleSingleResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/RuleNotFound"
-        "409":
-          description: Descriptor already exists for this rule
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorBody"
 
-  /api/descriptors/{ruleId}:
+  /api/hierarchy-rules/{ruleId}:
     parameters:
       - $ref: "#/components/parameters/RuleId"
     get:
-      tags: [Descriptors]
-      summary: Get one descriptor by rule id
-      operationId: getDescriptor
+      tags: [HierarchyRules]
+      summary: Get one hierarchy rule
+      operationId: getHierarchyRule
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DescriptorSingleResponse"
+                $ref: "#/components/schemas/HierarchyRuleSingleResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
-          $ref: "#/components/responses/DescriptorNotFound"
+          $ref: "#/components/responses/HierarchyRuleNotFound"
     patch:
-      tags: [Descriptors]
-      summary: Update descriptor fields
-      description: At least one of `routingQueue`, `slaBucket`, `costCenter` must be provided.
-      operationId: patchDescriptor
+      tags: [HierarchyRules]
+      summary: Update hierarchy rule fields
+      operationId: patchHierarchyRule
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DescriptorPatch"
+              $ref: "#/components/schemas/HierarchyRulePatch"
       responses:
         "200":
           description: Updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DescriptorSingleResponse"
+                $ref: "#/components/schemas/HierarchyRuleSingleResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
-          $ref: "#/components/responses/DescriptorNotFound"
+          description: Rule or hierarchy rule not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
     delete:
-      tags: [Descriptors]
-      summary: Delete a descriptor
-      operationId: deleteDescriptor
+      tags: [HierarchyRules]
+      summary: Delete hierarchy rule
+      operationId: deleteHierarchyRule
       responses:
         "204":
-          description: Deleted (no body)
+          description: Deleted
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
-          $ref: "#/components/responses/DescriptorNotFound"
+          $ref: "#/components/responses/HierarchyRuleNotFound"
 
   /api/rules:
     get:
       tags: [Rules]
-      summary: List rules and descriptor presence
+      summary: List outcome rules
       operationId: listRules
       responses:
         "200":
-          description: Ordered by `ruleId` ascending.
+          description: Ordered by ruleId asc
           content:
             application/json:
               schema:
@@ -129,10 +125,7 @@ paths:
   /api/enriched:
     get:
       tags: [Enriched]
-      summary: List enriched observation rows (JSON)
-      description: |
-        Computes the same pipeline as `ENRICHED_OBSERVATION_ROW` in the SQL demo: effective attributes →
-        feature ids → dense scores per outcome → argmax (tie-break lower `rule_id`) → join descriptor for winner.
+      summary: List enriched rows (JSON)
       operationId: listEnriched
       responses:
         "200":
@@ -146,7 +139,6 @@ paths:
     get:
       tags: [Enriched]
       summary: Download enriched rows as CSV
-      description: UTF-8 with BOM; attachment filename `enriched_observations.csv`.
       operationId: exportEnrichedCsv
       responses:
         "200":
@@ -166,7 +158,6 @@ components:
       schema:
         type: integer
         minimum: 1
-      description: Outcome / workstream id (`rule_id`).
 
   responses:
     BadRequest:
@@ -175,14 +166,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorBody"
-    DescriptorNotFound:
-      description: No descriptor for this rule
+    RuleNotFound:
+      description: Rule does not exist
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorBody"
-    RuleNotFound:
-      description: Rule does not exist
+    HierarchyRuleNotFound:
+      description: Hierarchy rule not found
       content:
         application/json:
           schema:
@@ -196,81 +187,14 @@ components:
         error:
           type: string
 
-    DescriptorItem:
-      type: object
-      required:
-        - ruleId
-        - decisionCode
-        - routingQueue
-        - slaBucket
-        - costCenter
-      properties:
-        ruleId:
-          type: integer
-          example: 1
-        decisionCode:
-          type: string
-          example: ald_sov_rates_na
-        routingQueue:
-          type: string
-          example: SOV-RATES-NA
-        slaBucket:
-          type: string
-          example: T+0_CLOSE
-        costCenter:
-          type: string
-          example: BOOK_NA_GOVT
-
-    DescriptorListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/DescriptorItem"
-
-    DescriptorSingleResponse:
-      type: object
-      required: [item]
-      properties:
-        item:
-          $ref: "#/components/schemas/DescriptorItem"
-
-    DescriptorCreate:
-      type: object
-      required: [ruleId, routingQueue, slaBucket, costCenter]
-      properties:
-        ruleId:
-          type: integer
-          minimum: 1
-        routingQueue:
-          type: string
-        slaBucket:
-          type: string
-        costCenter:
-          type: string
-
-    DescriptorPatch:
-      type: object
-      properties:
-        routingQueue:
-          type: string
-        slaBucket:
-          type: string
-        costCenter:
-          type: string
-
     RuleSummary:
       type: object
-      required: [ruleId, decisionCode, hasDescriptor]
+      required: [ruleId, decisionCode]
       properties:
         ruleId:
           type: integer
         decisionCode:
           type: string
-        hasDescriptor:
-          type: boolean
 
     RulesListResponse:
       type: object
@@ -281,15 +205,86 @@ components:
           items:
             $ref: "#/components/schemas/RuleSummary"
 
-    DescriptorPayload:
+    DescriptorValues:
+      type: array
+      minItems: 10
+      maxItems: 10
+      items:
+        type: string
+        nullable: true
+
+    HierarchyRuleItem:
+      type: object
+      required:
+        - hierarchyRuleId
+        - ruleId
+        - decisionCode
+        - hierarchyTop
+        - hierarchyMiddle
+        - hierarchyBottom
+        - descriptorValues
+      properties:
+        hierarchyRuleId:
+          type: integer
+        ruleId:
+          type: integer
+        decisionCode:
+          type: string
+        hierarchyTop:
+          type: string
+        hierarchyMiddle:
+          type: string
+        hierarchyBottom:
+          type: string
+        descriptorValues:
+          $ref: "#/components/schemas/DescriptorValues"
+
+    HierarchyRuleListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/HierarchyRuleItem"
+
+    HierarchyRuleSingleResponse:
+      type: object
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/HierarchyRuleItem"
+
+    HierarchyRuleCreate:
+      type: object
+      required: [ruleId, hierarchyTop, hierarchyMiddle, hierarchyBottom, descriptorValues]
+      properties:
+        ruleId:
+          type: integer
+          minimum: 1
+        hierarchyTop:
+          type: string
+        hierarchyMiddle:
+          type: string
+        hierarchyBottom:
+          type: string
+        descriptorValues:
+          $ref: "#/components/schemas/DescriptorValues"
+
+    HierarchyRulePatch:
       type: object
       properties:
-        routingQueue:
+        ruleId:
+          type: integer
+          minimum: 1
+        hierarchyTop:
           type: string
-        slaBucket:
+        hierarchyMiddle:
           type: string
-        costCenter:
+        hierarchyBottom:
           type: string
+        descriptorValues:
+          $ref: "#/components/schemas/DescriptorValues"
 
     EnrichedRow:
       type: object
@@ -302,6 +297,11 @@ components:
         - effectiveIssuerClass
         - effectiveRegion
         - effectiveRatingBand
+        - hierarchyTop
+        - hierarchyMiddle
+        - hierarchyBottom
+        - matchedHierarchyRuleId
+        - descriptorValues
         - activeFeatureIds
         - scoreByRuleId
         - scoreA
@@ -310,7 +310,6 @@ components:
         - winningRuleId
         - winningDecisionCode
         - winningScore
-        - descriptor
       properties:
         observationId:
           type: integer
@@ -337,6 +336,17 @@ components:
           type: string
         effectiveRatingBand:
           type: string
+        hierarchyTop:
+          type: string
+        hierarchyMiddle:
+          type: string
+        hierarchyBottom:
+          type: string
+        matchedHierarchyRuleId:
+          type: integer
+          nullable: true
+        descriptorValues:
+          $ref: "#/components/schemas/DescriptorValues"
         activeFeatureIds:
           type: array
           items:
@@ -347,7 +357,6 @@ components:
             type: number
         scoreA:
           type: number
-          description: Pre-max score for rule_id 1 (slot a).
         scoreB:
           type: number
         scoreC:
@@ -358,10 +367,6 @@ components:
           type: string
         winningScore:
           type: number
-        descriptor:
-          nullable: true
-          allOf:
-            - $ref: "#/components/schemas/DescriptorPayload"
 
     EnrichedListResponse:
       type: object

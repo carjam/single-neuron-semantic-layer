@@ -2,11 +2,11 @@
 
 ## Expert system first—also a semantic layer
 
-**Primary lens: expert system.** The pattern here is classic **knowledge-based inference**: qualitative business facts (classifications, regions, rating bands) are turned into a **fixed feature basis**, **expert-curated weights** encode how each candidate outcome “matches” those features, and a **deterministic decision rule** picks exactly one outcome per observation. The rules and weights are **maintained by people** (governed updates), not learned from gradients—so the behavior is **auditable** and **explainable** end-to-end.
+**Primary lens: expert system.** The pattern here is classic **knowledge-based inference**: qualitative business facts (classifications, regions, rating bands) are matched against **wildcard hierarchy rules**, runtime match strength is derived from **specificity**, and a deterministic decision rule picks exactly one outcome per observation. The rules are maintained by people (governed updates), not learned from gradients—so behavior remains auditable end-to-end.
 
 **Same system as a semantic layer.** In production it also sat in the **semantic layer** role: fund-owned dimensions and **optional overrides** on top of a **vendor reference taxonomy** (here stylized as `ald_*`), so reporting and routing could use **effective** labels without discarding vendor lineage. The business story is “whose labels win for this analysis?”—that is semantic-layer work—even though the **engine** is an expert system under the hood.
 
-**Original article title:** [Building a Semantic Layer Using AI](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html) foregrounds the **semantic layer** problem (and how AI-assisted tooling helped experts encode knowledge). The **SQL implementation** is the expert-system shape: kernelized categorical inputs, linear scoring, and a discrete winner—see **[Kernelization, matmul, and gating](#kernelization-matrix-multiply-and-gating-neural-network-analogy)** below.
+**Original article title:** [Building a Semantic Layer Using AI](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html) foregrounds the semantic-layer problem. The implementation here is still expert-system shaped: categorical inputs + rule matching + deterministic winner selection.
 
 ## Situation & solution (read this first)
 
@@ -32,15 +32,15 @@ This repository is a **public, synthetic** companion to a production system I de
 
 ## How the scoring engine works
 
-### Kernelization, matrix multiply, and gating (neural-network analogy)
+### Kernelization, runtime hierarchy scoring, and gating
 
 **Qualitative → numeric.** Vendor and fund-side fields are **categorical** (issuer class, region, rating band, …). **Kernelization** maps each row’s **effective** labels into a **sparse binary vector** $d_j \in \{0,1\}^M$ over a **fixed dictionary** of atomic features (e.g. `fi_corporate`, `region_emea`). That step is the bridge from **qualitative data** to something algebra can consume—without pretending the categories were already real numbers.
 
-**Matrix multiplication.** Stacking outcome weight rows gives a matrix $K$; stacking observation columns gives $D$. The score block $S = K D$ is exactly **matrix multiplication**: each cell is a dot product $\langle k_i, d_j\rangle$. In SQL this shows up as joins and `SUM` over active features—the same inner-product pattern as a **linear layer** in a neural network, except $K$ is **frozen** and **hand-authored**.
+**Runtime scoring from hierarchy match strength.** Each observation is mapped to a normalized hierarchy (`hierarchy_top`, `hierarchy_middle`, `hierarchy_bottom`), and each rule row can match exactly or via `*`. Match score is computed at runtime as `specificity / 3` (three exact levels = `1.0`, one exact + two wildcards = `0.333...`). Scores for each decision are the best matching hierarchy row for that decision.
 
 **Logic gating.** The discrete choice $\arg\max_i s_{ij}$ (with a fixed tie-break) is a **hard winner-take-all gate**: one outcome “on,” the rest “off.” There is **no softmax**, **no depth**, and **no training loop** in this artifact.
 
-**Resemblance to a tiny net.** If you treat $d_j$ as an input vector and each $k_i$ as a row of weights, the pipeline is **one linear layer** (the multiply) followed by an **argmax-style nonlinearity**—the shallowest possible “which logit wins” head. It is useful to explain to ML-literate stakeholders as a **deliberately minimal** network fragment: same **matmul + nonlinear decision** idea, but **interpretable**, **rule-governed**, and **not** gradient-fit. Deeper nets stack many such layers with learned weights; here, depth is traded for **transparency** and **operational control**.
+**Resemblance to a tiny net.** You can still view this as “score vector + hard gate,” but the score vector is now produced by deterministic hierarchy matching rather than static matrix weights. It keeps the same explainability benefits while staying closer to operational rule governance.
 
 ### Stakeholder view (what each “run” decides)
 
@@ -50,23 +50,23 @@ For every **security** in scope, the engine **chooses exactly one subject option
 
 **Separated for clarity (facts vs policy vs math):**
 
-- **Data / structure (facts in the demo):** For each dimension, **effective value** = non-blank **fund override** if set, else **`ald_*` vendor value**. Kernelization maps those **effective** labels into a **fixed** binary feature dictionary (`fi_sovereign`, `fi_corporate`, `region_*`, `rating_ig`, …). Matrix $K$ holds **non-negative** weights $k_{im}$ for each workstream $i$; rows are **normalized** ($\sum_m k_{im}=1$). In production, users chose **which level** of the hierarchy to override and **what value** to apply; the SQL demo fixes three dimensions (issuer, region, rating band) for clarity.
+- **Data / structure (facts in the demo):** For each dimension, **effective value** = non-blank **fund override** if set, else **`ald_*` vendor value**. A normalized hierarchy is derived from effective issuer (`Debt/Govt|Corp|Deriv/<issuer>`). Hierarchy rules allow wildcards and include a `rule_id` target plus semantic descriptor fields.
 - **Business policy (declared, not learned):** The winning outcome is the one with the **highest score**; **ties** resolve by a **fixed ordering** on outcome id (`rule_id` in SQL). Production also used precedence “waterfall” rules—see `docs/case-study.md`.
 - **What is *not* decided here:** Continuous allocation, budgets, or solver-tuned decision vectors; there is **no** numerical optimization over a free $x\in\mathbb{R}^n$ in this pattern.
 
-### Technical primer: linear algebra and the argmax gate
+### Technical primer: precedence scoring and argmax gate
 
-**Notation.** $M$ = number of atomic binary features after kernelization. $N$ = number of outcomes (subject options / workstreams). For observation $j$ (e.g. one security in the demo), let $d_j \in \{0,1\}^M$ be the feature vector (stored sparsely in SQL). For outcome $i$, let $k_i \in \mathbb{R}^M$ be the weight vector (zeros implied on features absent from `demo_rule_weights`).
+**Notation.** $N$ = number of outcomes (workstreams). For observation $j$, hierarchy matching yields a score vector $(s_{1j}, \ldots, s_{Nj})$ where each $s_{ij}$ is the maximum specificity score among hierarchy rows mapped to outcome $i$.
 
-**Linear score.** The score of outcome $i$ against observation $j$ is the standard inner product
+**Hierarchy score.** For each matching hierarchy rule, specificity is:
 
 $$
-s_{ij} = \langle k_i, d_j \rangle = \sum_{m=1}^M k_{im}\, d_{jm}.
+\text{specificity} = \frac{\mathbf{1}[top\neq *] + \mathbf{1}[middle\neq *] + \mathbf{1}[bottom\neq *]}{3}
 $$
 
-Because $d_{jm}\in\{0,1\}$, only **active** features contribute—this is the sparse dot product implemented with joins and `SUM` in the scripts. Up to matrix layout, the full block of scores is $S = K D$, with columns of $D$ equal to the $d_j$ (or equivalently $K D^\top$ if observations are rows; same algebra).
+and the outcome score is the maximum specificity among rows for that outcome.
 
-**Wide scores and `UNPIVOT`.** For each observation $j$, the vector $(s_{1j},\ldots,s_{Nj})^\top$ is one column of that product. The demo materializes it as **wide** columns (`score_a`, `score_b`, `score_c` / `a`, `b`, `c`) so **T-SQL `UNPIVOT`** (or **PostgreSQL `LATERAL VALUES`**) can emit **long** rows `(outcome slot, score)`—the reshape step described in the original post before joining metadata.
+**Wide scores and `UNPIVOT`.** The demo still materializes wide slots (`a`,`b`,`c`) then reshapes to long rows for ranking, using `UNPIVOT` in SQL Server and `LATERAL VALUES` in PostgreSQL.
 
 **Logic gate (hard max).** The discrete decision is
 
@@ -74,17 +74,17 @@ $$
 i^\star(j) \in \arg\max_{i=1,\ldots,N} s_{ij},
 $$
 
-with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the demo). That is **winner-take-all gating**: no softmax, no temperature, **no gradient-based learning** of $K$ in this artifact. In ML vocabulary, $(s_{1j},\ldots,s_{Nj})$ behave like **logits** before a hard max—the formal mirror of the **[neural-network analogy](#kernelization-matrix-multiply-and-gating-neural-network-analogy)** above.
+with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the demo). That is winner-take-all gating: no softmax, no temperature, no gradient-based learning.
 
 **Problem class (precision).** This is **not** LP, QP, or MILP in the sense of optimizing a continuous or mixed-integer decision $x$ subject to constraints. The mathematics is **linear functionals** of fixed binary $d_j$ plus **discrete maximization** over a **finite** label set—fast to evaluate and easy to audit, at the cost of no built-in uncertainty quantification.
 
 ### Reproducibility
 
-- **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (three **synthetic** FI rows with **`ald_*` + `fund_*_override`**, three workstreams, all `INSERT`s in-script).
+- **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (seven **synthetic** FI rows with **`ald_*` + `fund_*_override`**, three workstreams, all `INSERT`s in-script).
 - **Command:** Run the **Quick start** sections below for PostgreSQL or SQL Server.
 - **Full Postgres run (no local `psql`):** With **Docker** running (e.g. Docker Desktop), from repo root run `.\scripts\run_postgres_demo_docker.ps1` (Windows) or `bash scripts/run_postgres_demo_docker.sh` (macOS/Linux). This starts an **ephemeral** `postgres:16-alpine` container, executes the demo, prints all result sets (including **`ENRICHED_OBSERVATION_ROW`**), then removes the container.
 - **Syntax check (no DB):** `pip install pglast` then `python scripts/verify_postgres_demo.py` — confirms the Postgres script is valid SQL (verified in development: **27** statements parse cleanly).
-- **Toy UI (Next.js):** `web/` — SQLite + Prisma, REST CRUD for per-outcome **descriptors** (`routing_queue`, `sla_bucket`, `cost_center`), a screen for **enriched** rows (same pipeline as **`ENRICHED_OBSERVATION_ROW`**), and **`/api-docs`** with an **OpenAPI 3** spec (`web/public/openapi.yaml`) plus Swagger UI. See **`web/.env.example`** and run `cd web && npm install && npx prisma migrate dev && npm run dev`. **Tests:** `cd web && npm run test:coverage` (Vitest; coverage targets **`src/lib`** and **`src/app/api`**, ≥90% lines/branches).
+- **Toy UI (Next.js):** `web/` — SQLite + Prisma, CRUD for **hierarchy rules** (`rule_id` + 3-level pattern + up to 10 descriptor columns), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example` and run `cd web && npm install && npx prisma migrate dev && npm run dev`.
 
 **Enriched page (`/enriched`) — toy UI**
 
@@ -94,7 +94,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 ### Limitations (negative space)
 
 - Scores $s_{ij}$ are **not** claimed to be calibrated probabilities; interpreting them across securities or portfolios requires an explicit business definition.
-- **Kernelization** and $K$ must stay in sync; **overrides** need **governance** (who can change vendor-effective classification, how conflicts with risk or compliance are reviewed)—errors are operational, not caught by the score formula alone.
+- Hierarchy rules and overrides need governance (who can change patterns or wildcard precedence, and how conflicts are reviewed)—errors are operational, not mathematical.
 - This repo does **not** reproduce production **scale** mechanics (indexed TVFs, staging on read replicas, etc.); those are described in `docs/case-study.md`.
 
 ## Repository layout
@@ -118,12 +118,13 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 | **Fund semantic layer (`fund_*_override`)** | Nullable per column; when **non-blank**, replaces the corresponding `ald_*` for **scoring only** (vendor columns remain in the enriched output for lineage). |
 | **Effective (implicit)** | `COALESCE(NULLIF(TRIM(override), ''), ald_value)` per dimension—this is what **kernelization** sees. |
 | **Kernelized features** | Sparse 0/1 atoms over **effective** labels: `fi_sovereign`, `fi_corporate`, `region_emea`, `region_na`, `rating_ig`. |
-| **Outcomes ($K$ rows)** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA)—each with `routing_queue`, `sla_bucket`, `cost_center`. |
-| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: `ald_*`, `fund_*_override`, **`effective_*`**, scores, `winning_workstream`, operational metadata. |
+| **Hierarchy enrichment rules** | User-maintained match rows with `*` wildcard support across `hierarchy_top`, `hierarchy_middle`, `hierarchy_bottom`; highest specificity (most non-`*` levels) wins, then deterministic tie-break. |
+| **Decision outcomes** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA). |
+| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: `ald_*`, `fund_*_override`, **`effective_*`**, runtime hierarchy scores, `winning_workstream`, wildcard-resolved semantic descriptors, operational metadata. |
 
 ## Worked example (Aladdin-style FI data + fund overrides)
 
-The SQL loads **three synthetic** fixed income rows: each has **vendor (`ald_*`)** reference attributes and optional **`fund_*_override`** values maintained by the fund (semantic layer). **Kernelization** uses **effective** = override when non-blank, else vendor. **ISINs are fabricated** (`…ALDIN…`). *Aladdin® is a registered trademark of BlackRock, Inc.; this repo is independent and for illustration only.*
+The SQL loads **seven synthetic** fixed income rows: each has **vendor (`ald_*`)** reference attributes and optional **`fund_*_override`** values maintained by the fund (semantic layer). **Kernelization** uses **effective** = override when non-blank, else vendor. **ISINs are fabricated** (`…ALDIN…`). *Aladdin® is a registered trademark of BlackRock, Inc.; this repo is independent and for illustration only.*
 
 Match the **`INSERT` into `demo_observations`** and **`ENRICHED_OBSERVATION_ROW`** to the tables below.
 
@@ -136,35 +137,43 @@ Illustrative layout: **Aladdin-classified** columns plus **fund** columns (same 
 | US00ALDINFI01 | US Treasury note (synthetic) | Govt | sovereign | *(none)* | na | *(none)* | ig | *(none)* |
 | DE00ALDINFI02 | EUR corporate note (synthetic) | Corp | corporate | *(none)* | emea | *(none)* | core | *(none)* |
 | US00ALDINFI03 | US corporate bond (synthetic) | Corp | corporate | *(none)* | na | **`emea`** | core | *(none)* |
+| GB00ALDINFI04 | UK gilt (synthetic) | Govt | sovereign | *(none)* | emea | *(none)* | ig | *(none)* |
+| FR00ALDINFI05 | FR corporate note (synthetic) | Corp | corporate | *(none)* | emea | *(none)* | ig | **`core`** |
+| CA00ALDINFI06 | CA corporate note (synthetic) | Corp | corporate | *(none)* | na | **`emea`** | core | *(none)* |
+| US00ALDINFI07 | US FI derivative (synthetic) | Deriv | derivative | *(none)* | na | *(none)* | core | *(none)* |
 
 **Row 3 story:** Aladdin still books the name in **North America** (`ald_region = na`), but the fund sets **`fund_region_override = emea`** so—**for internal aggregation and workstream routing**—it is treated like an **EMEA corporate** (e.g. to align with a sleeve or mandate view) **without editing the vendor feed**.
 
-- **Effective for scoring:** row 3 behaves as **corporate + emea + core** → same feature vector as row 2 → **corporate credit (EMEA)** wins.
+- **Effective for scoring:** rows 3 and 6 behave as **corporate + emea + core** → same feature vector as row 2 → **corporate credit (EMEA)** wins.
 - **`rating_band` = `core`:** no `rating_ig` bit in this toy; not a literal Aladdin enum.
 
-### Inputs: subject options (workstreams + semantic “white columns”)
+### Inputs: subject options (workstreams)
 
-Each row is a candidate **downstream workstream**—similar to attaching an **operations / analytics queue** and **book** in a semantic layer. `decision_code` is the key joined after **argmax**.
+Each row is a candidate **downstream workstream**. `decision_code` is the key selected by **argmax**.
 
-| decision_code (system key) | Aladdin-style workstream label | routing_queue | sla_bucket | cost_center (book tag) |
-|----------------------------|--------------------------------|---------------|------------|-------------------------|
-| `ald_sov_rates_na` | Sovereign & rates — North America | SOV-RATES-NA | T+0_CLOSE | BOOK_NA_GOVT |
-| `ald_corp_credit_na` | Corporate credit — North America | CORP-CREDIT-NA | T+1_STD | BOOK_NA_CREDIT |
-| `ald_corp_credit_emea` | Corporate credit — EMEA | CORP-CREDIT-EMEA | T+1_STD | BOOK_EMEA_CREDIT |
+| decision_code (system key) | Aladdin-style workstream label |
+|----------------------------|--------------------------------|
+| `ald_sov_rates_na` | Sovereign & rates — North America |
+| `ald_corp_credit_na` | Corporate credit — North America |
+| `ald_corp_credit_emea` | Corporate credit — EMEA |
 
-Experts also maintain **$K$**: non-negative weights on `fi_sovereign`, `fi_corporate`, `region_*`, `rating_ig` (row-normalized in the script). The engine **kernelizes** each security row, computes scores, **UNPIVOT**-style reshapes wide scores (`a`/`b`/`c`), then applies **argmax** (tie-break on `rule_id`).
+Experts maintain hierarchy rules with wildcard support. The engine derives runtime match-strength scores from those rules, reshapes wide scores (`a`/`b`/`c`) to long, and applies argmax (tie-break on `rule_id`).
 
 ### Output: enriched rows (vendor + overrides + effective + winner)
 
-**`ENRICHED_OBSERVATION_ROW`** mirrors the SQL: full **`ald_*` / `fund_*`**, computed **`effective_*`** (what was kernelized), scores, and workstream metadata. *Illustrative name* omitted from the query.
+**`ENRICHED_OBSERVATION_ROW`** mirrors the SQL: full **`ald_*` / `fund_*`**, computed **`effective_*`** (what was kernelized), scores, wildcard-precedence `descriptor_01..10` from matched hierarchy rule, and winning workstream. *Illustrative name* omitted from the query.
 
-| isin | ald_region | fund_region_override | effective_region | effective_issuer | effective_rating | score_a | score_b | score_c | winning_workstream | winning_score | routing_queue |
-|------|------------|----------------------|------------------|------------------|------------------|---------|---------|---------|---------------------|---------------|---------------|
-| US00ALDINFI01 | na | | na | sovereign | ig | 1.00 | 0.60 | 0.00 | `ald_sov_rates_na` | 1.00 | SOV-RATES-NA |
-| DE00ALDINFI02 | emea | | emea | corporate | core | 0.00 | 0.40 | 1.00 | `ald_corp_credit_emea` | 1.00 | CORP-CREDIT-EMEA |
-| US00ALDINFI03 | na | emea | **emea** | corporate | core | 0.00 | 0.40 | 1.00 | **`ald_corp_credit_emea`** | 1.00 | **CORP-CREDIT-EMEA** |
+| isin | ald_region | fund_region_override | effective_region | effective_issuer | effective_rating | score_a | score_b | score_c | winning_workstream | winning_score | descriptor_01 | descriptor_02 | descriptor_03 | descriptor_04 |
+|------|------------|----------------------|------------------|------------------|------------------|---------|---------|---------|---------------------|---------------|---------------|---------------|---------------|---------------|
+| US00ALDINFI01 | na | | na | sovereign | ig | 1.00 | 0.33 | 0.00 | `ald_sov_rates_na` | 1.00 | rates_coverage | SOV-RATES-NA | T+0_CLOSE | BOOK_NA_GOVT |
+| DE00ALDINFI02 | emea | | emea | corporate | core | 0.00 | 0.33 | 1.00 | `ald_corp_credit_emea` | 1.00 | credit_coverage | CORP-CREDIT-EMEA | T+1_STD | BOOK_EMEA_CREDIT |
+| US00ALDINFI03 | na | emea | **emea** | corporate | core | 0.00 | 0.33 | 1.00 | **`ald_corp_credit_emea`** | 1.00 | credit_coverage | **CORP-CREDIT-EMEA** | **T+1_STD** | **BOOK_EMEA_CREDIT** |
+| GB00ALDINFI04 | emea | | emea | sovereign | ig | 1.00 | 0.33 | 0.00 | `ald_sov_rates_na` | 1.00 | rates_coverage | SOV-RATES-NA | T+0_CLOSE | BOOK_NA_GOVT |
+| FR00ALDINFI05 | emea | | emea | corporate | core | 0.00 | 0.33 | 1.00 | `ald_corp_credit_emea` | 1.00 | credit_coverage | CORP-CREDIT-EMEA | T+1_STD | BOOK_EMEA_CREDIT |
+| CA00ALDINFI06 | na | emea | **emea** | corporate | core | 0.00 | 0.33 | 1.00 | **`ald_corp_credit_emea`** | 1.00 | credit_coverage | **CORP-CREDIT-EMEA** | **T+1_STD** | **BOOK_EMEA_CREDIT** |
+| US00ALDINFI07 | na | | na | derivative | core | 0.00 | 0.33 | 0.00 | `ald_corp_credit_na` | 0.33 | general_debt_coverage | CORP-CREDIT-NA | T+1_STD | BOOK_NA_CREDIT |
 
-**Readout:** Treasury **NA** **IG** → sovereign-rates NA. **DE corporate EMEA** → corporate credit EMEA. **US corporate** with **fund region override to EMEA** → **same queue as DE** (aggregation path aligned), even though Aladdin still shows **NA** geography—**no spreadsheet munging** required to compare the two names on the fund’s basis. Full output also includes `sla_bucket`, `cost_center`, and the remaining `ald_*` / `fund_*` columns. Earlier result sets (`VARIABLE_SPACE_*`, `SUBJECT_SPACE_BY_ISIN`, `UNPIVOT_LONG`, …) show the linear-algebra layout.
+**Readout:** Sovereign rows match the specific hierarchy rule (`Debt` + `Govt` + `sovereign`) and get `descriptor_01 = rates_coverage`; corporate rows match (`Debt` + `Corp` + `corporate`) and get `credit_coverage`; derivative row 7 falls through to the wildcard fallback (`Debt` + `*` + `*`) and gets `general_debt_coverage`. Rows 3 and 6 show the Aladdin-vs-fund tension directly: vendor region is **NA**, fund override rebooks to **EMEA**, and decisioning follows **effective** values without mutating the vendor feed. Descriptor columns (up to 10) are attached from the matched hierarchy rule. Earlier result sets (`VARIABLE_SPACE_*`, `SUBJECT_SPACE_BY_ISIN`, `UNPIVOT_LONG`, …) show the linear-algebra layout.
 
 ## Quick start (PostgreSQL)
 
@@ -230,7 +239,7 @@ git commit --amend --reset-author --no-edit
 - **Lighten hot paths:** prefer **pre-kernelized numeric or binary** features over heavy string logic where possible, and keep **`UNPIVOT` / wide-score column identifiers short** to cut string comparison cost in tight loops.
 - **Stage and index intermediates:** **materialized or temp staging** with appropriate **indexes** on intermediate results often beats a single monolithic **CTE-only** shape when predicates do not push down cleanly—see also the README **Limitations** note on indexed TVFs and replicas.
 
-**Historical enrichments.** Production runs should **record which enrichment snapshot** was used when a row was scored—e.g. **rule / weight version**, **semantic layer or override state**, and **pipeline build**—so past routing decisions, audits, and reconciliations can be explained even after experts change $K$ or overrides. This repo’s demo is **point-in-time** only; persisting that lineage is left as a deliberate extension.
+**Historical enrichments.** Production runs should record which enrichment snapshot was used when a row was scored—e.g. hierarchy-rule version set, override state, and pipeline build—so past routing decisions remain explainable after rule edits.
 
 ## Tags
 

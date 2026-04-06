@@ -20,7 +20,7 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
    Experts create and maintain dimensions and descriptor values through a web UI; data is stored relationally and exposed via APIs (and optionally Excel/Power Query as a thin client).
 
 2. **In-database scoring and enrichment**  
-   User-maintained **rules** and **descriptor columns** (the “white” semantic fields) were combined with daily **observations** inside SQL. Where platforms imposed a **fixed vendor hierarchy** (e.g. Aladdin-classified sectors and regions), funds needed **optional overrides** at **granularity of their choice**—stored alongside the feed, **not** by mutating vendor master data—so **effective** attributes used for scoring became **fund value if set, else vendor value**. Those **effective** labels were **kernelized** to a fixed binary feature dictionary; **expert weights** formed rows of $K$; **argmax** (plus **waterfall / tie precedence** in production) chose an outcome; **wide scores → `UNPIVOT`** produced **one enriched row per observation** (in the portfolio repo: **per security**, with **`ald_*`**, **`fund_*`**, and **effective** columns exposed).  
+   User-maintained hierarchy rules and descriptor columns were combined with daily observations inside SQL. Where platforms imposed a fixed vendor hierarchy, funds needed optional overrides at chosen levels—stored alongside the feed, not by mutating vendor master data—so effective attributes used for scoring became fund value if set, else vendor value. Effective issuer drives a normalized hierarchy (`top/middle/bottom`), wildcard hierarchy rules (`*`) are matched at runtime, and **specificity score** (more exact levels = stronger match) becomes the decision score per outcome. Argmax (plus tie precedence) chooses the winner; wide scores → `UNPIVOT` still produce one enriched row per observation.
 
    **Formal notation**, **reproducibility**, and a **worked example** (including a **region override** that rebooks a US corporate into the EMEA credit path) live in [`README.md`](../README.md).
 
@@ -44,11 +44,11 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 
 ## Lessons (still relevant)
 
-- **Separating** “small, expert-maintained rule set” from “huge observation stream” drives the **kernelization + matrix-style** join pattern.
+- **Separating** “small, expert-maintained rule set” from “huge observation stream” drives the kernelization + rule-matching pattern.
 - **Vendor classification vs fund overrides:** exposing both **`ald_*`** and **`effective`** (post-override) in outputs supports **PM aggregation** and **audit** against the **platform hierarchy** without duplicate manual extracts.
 - **Contract-first access** (required parameters, typed TVPs) is a lever for **performance and safety** on shared fact tables.
 - The same pipeline pattern can support other **post-score actions** (not only max/waterfall), e.g., diagnostics or drift-style checks, with different output layers.
-- Framing scores as a **linear layer** and the decision as **argmax** communicates quickly to ML-literate stakeholders—while keeping clear that **$K$ is curated**, not gradient-learned.
+- Framing scores as deterministic rule-match strengths plus argmax communicates quickly to ML-literate stakeholders while preserving full explainability.
 
 ## Reference
 

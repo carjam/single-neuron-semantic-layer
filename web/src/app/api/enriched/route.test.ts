@@ -1,17 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const oFindMany = vi.hoisted(() => vi.fn());
-const rFindMany = vi.hoisted(() => vi.fn());
-const rwFindMany = vi.hoisted(() => vi.fn());
-const dFindMany = vi.hoisted(() => vi.fn());
+const loadEnrichedRows = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    observation: { findMany: oFindMany },
-    rule: { findMany: rFindMany },
-    ruleWeight: { findMany: rwFindMany },
-    descriptor: { findMany: dFindMany },
-  },
+vi.mock("@/lib/loadEnrichedRows", () => ({
+  loadEnrichedRows,
 }));
 
 import { GET } from "./route";
@@ -20,9 +12,9 @@ describe("GET /api/enriched", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns computed rows", async () => {
-    oFindMany.mockResolvedValue([
+    loadEnrichedRows.mockResolvedValue([
       {
-        id: 1,
+        observationId: 1,
         isin: "US00ALDINFI01",
         aldIssuerClass: "sovereign",
         fundIssuerClassOverride: null,
@@ -30,23 +22,23 @@ describe("GET /api/enriched", () => {
         fundRegionOverride: null,
         aldRatingBand: "ig",
         fundRatingBandOverride: null,
+        effectiveIssuerClass: "sovereign",
+        effectiveRegion: "na",
+        effectiveRatingBand: "ig",
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "Govt",
+        hierarchyBottom: "sovereign",
+        matchedHierarchyRuleId: 1,
+        descriptorValues: ["rates_coverage", null, null, null, null, null, null, null, null, null],
+        activeFeatureIds: [1, 4, 5],
+        scoreByRuleId: { 1: 1, 2: 0.6, 3: 0 },
+        scoreA: 1,
+        scoreB: 0.6,
+        scoreC: 0,
+        winningRuleId: 1,
+        winningDecisionCode: "ald_sov_rates_na",
+        winningScore: 1,
       },
-    ]);
-    rFindMany.mockResolvedValue([
-      { id: 1, decisionCode: "ald_sov_rates_na" },
-      { id: 2, decisionCode: "ald_corp_credit_na" },
-      { id: 3, decisionCode: "ald_corp_credit_emea" },
-    ]);
-    rwFindMany.mockResolvedValue([
-      { ruleId: 1, featureId: 1, weight: 0.5 },
-      { ruleId: 1, featureId: 5, weight: 0.5 },
-      { ruleId: 2, featureId: 2, weight: 0.4 },
-      { ruleId: 2, featureId: 4, weight: 0.6 },
-      { ruleId: 3, featureId: 2, weight: 0.4 },
-      { ruleId: 3, featureId: 3, weight: 0.6 },
-    ]);
-    dFindMany.mockResolvedValue([
-      { ruleId: 1, routingQueue: "Q1", slaBucket: "S1", costCenter: "C1" },
     ]);
 
     const res = await GET();

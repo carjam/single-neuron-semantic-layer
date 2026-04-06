@@ -23,7 +23,11 @@ function row(p: Partial<EnrichedObservationRow>): EnrichedObservationRow {
     winningRuleId: 2,
     winningDecisionCode: "ald_corp_credit_na",
     winningScore: 0.4,
-    descriptor: { routingQueue: "RQ", slaBucket: "SLA", costCenter: "CC" },
+    hierarchyTop: "Debt",
+    hierarchyMiddle: "Corp",
+    hierarchyBottom: "corporate",
+    matchedHierarchyRuleId: 2,
+    descriptorValues: ["credit_coverage", null, null, null, null, null, null, null, null, null],
     ...p,
   };
 }
@@ -52,11 +56,11 @@ describe("enrichedRowsToCsv", () => {
     expect(csv).toMatch(/"a\nb"/);
   });
 
-  it("outputs empty strings for null overrides and missing descriptor", () => {
+  it("outputs empty strings for null overrides and null descriptor columns", () => {
     const csv = enrichedRowsToCsv([
       row({
         fundIssuerClassOverride: null,
-        descriptor: null,
+        descriptorValues: [null, null, null, null, null, null, null, null, null, null],
       }),
     ]);
     const cols = csv.split("\r\n")[1].split(",");

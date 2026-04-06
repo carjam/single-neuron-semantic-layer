@@ -1,4 +1,4 @@
-import type { Descriptor, Observation, Rule, RuleWeight } from "@prisma/client";
+import type { HierarchyRule, Observation, Rule } from "@prisma/client";
 
 export type EnrichedObservationRow = {
   observationId: number;
@@ -12,6 +12,11 @@ export type EnrichedObservationRow = {
   effectiveIssuerClass: string;
   effectiveRegion: string;
   effectiveRatingBand: string;
+  hierarchyTop: string;
+  hierarchyMiddle: string;
+  hierarchyBottom: string;
+  matchedHierarchyRuleId: number | null;
+  descriptorValues: Array<string | null>;
   activeFeatureIds: number[];
   scoreByRuleId: Record<number, number>;
   scoreA: number;
@@ -20,11 +25,6 @@ export type EnrichedObservationRow = {
   winningRuleId: number;
   winningDecisionCode: string;
   winningScore: number;
-  descriptor: {
-    routingQueue: string;
-    slaBucket: string;
-    costCenter: string;
-  } | null;
 };
 
 function effectiveOverride(override: string | null | undefined, ald: string): string {
@@ -47,34 +47,84 @@ export function kernelizeFeatureIds(o: Observation): number[] {
   return ids;
 }
 
-function scoreForObservation(
-  featureIds: Set<number>,
-  ruleId: number,
-  weights: RuleWeight[],
-): number {
-  let s = 0;
-  for (const rw of weights) {
-    if (rw.ruleId === ruleId && featureIds.has(rw.featureId)) {
-      s += rw.weight;
-    }
+function deriveHierarchy(issuerClass: string): {
+  hierarchyTop: string;
+  hierarchyMiddle: string;
+  hierarchyBottom: string;
+} {
+  const hierarchyTop = "Debt";
+  const hierarchyMiddle =
+    issuerClass === "sovereign" ? "Govt" : issuerClass === "corporate" ? "Corp" : "Deriv";
+  return {
+    hierarchyTop,
+    hierarchyMiddle,
+    hierarchyBottom: issuerClass,
+  };
+}
+
+function resolveHierarchyRule(
+  hierarchyRules: HierarchyRule[],
+  hierarchyTop: string,
+  hierarchyMiddle: string,
+  hierarchyBottom: string,
+) {
+  const candidates = hierarchyRules
+    .filter(
+      (r) =>
+        (r.hierarchyTop === "*" || r.hierarchyTop === hierarchyTop) &&
+        (r.hierarchyMiddle === "*" || r.hierarchyMiddle === hierarchyMiddle) &&
+        (r.hierarchyBottom === "*" || r.hierarchyBottom === hierarchyBottom),
+    )
+    .map((r) => ({
+      rule: r,
+      specificity:
+        Number(r.hierarchyTop !== "*") +
+        Number(r.hierarchyMiddle !== "*") +
+        Number(r.hierarchyBottom !== "*"),
+    }))
+    .sort((a, b) => b.specificity - a.specificity || a.rule.id - b.rule.id);
+
+  const winner = candidates[0];
+  if (!winner) {
+    return {
+      matchedRule: null,
+      matchStrength: 0,
+    };
   }
-  return s;
+
+  return {
+    matchedRule: winner.rule,
+    matchStrength: winner.specificity / 3,
+  };
 }
 
 export function computeEnrichedRows(
   observations: Observation[],
   rules: Rule[],
-  weights: RuleWeight[],
-  descriptors: Descriptor[],
+  hierarchyRules: HierarchyRule[] = [],
 ): EnrichedObservationRow[] {
-  const descByRule = new Map(descriptors.map((d) => [d.ruleId, d]));
   const ruleIds = [...rules].sort((a, b) => a.id - b.id).map((r) => r.id);
 
   return observations.map((o) => {
     const featureIds = new Set(kernelizeFeatureIds(o));
+    const effectiveIssuerClass = effectiveOverride(o.fundIssuerClassOverride, o.aldIssuerClass);
+    const effectiveRegion = effectiveOverride(o.fundRegionOverride, o.aldRegion);
+    const effectiveRatingBand = effectiveOverride(o.fundRatingBandOverride, o.aldRatingBand);
+    const hierarchy = deriveHierarchy(effectiveIssuerClass);
+    const hierarchyMatch = resolveHierarchyRule(hierarchyRules, hierarchy.hierarchyTop, hierarchy.hierarchyMiddle, hierarchy.hierarchyBottom);
     const scoreByRuleId: Record<number, number> = {};
-    for (const rid of ruleIds) {
-      scoreByRuleId[rid] = scoreForObservation(featureIds, rid, weights);
+    for (const rid of ruleIds) scoreByRuleId[rid] = 0;
+
+    for (const rule of hierarchyRules) {
+      const candidate = resolveHierarchyRule(
+        [rule],
+        hierarchy.hierarchyTop,
+        hierarchy.hierarchyMiddle,
+        hierarchy.hierarchyBottom,
+      );
+      if (candidate.matchStrength > (scoreByRuleId[rule.ruleId] ?? 0)) {
+        scoreByRuleId[rule.ruleId] = candidate.matchStrength;
+      }
     }
 
     const scoreA = scoreByRuleId[1] ?? 0;
@@ -93,7 +143,21 @@ export function computeEnrichedRows(
     }
 
     const winningRule = rules.find((r) => r.id === winningRuleId);
-    const d = descByRule.get(winningRuleId);
+    const matched = hierarchyMatch.matchedRule;
+    const descriptorValues: Array<string | null> = matched
+      ? [
+          matched.descriptor01,
+          matched.descriptor02,
+          matched.descriptor03,
+          matched.descriptor04,
+          matched.descriptor05,
+          matched.descriptor06,
+          matched.descriptor07,
+          matched.descriptor08,
+          matched.descriptor09,
+          matched.descriptor10,
+        ]
+      : [null, null, null, null, null, null, null, null, null, null];
 
     return {
       observationId: o.id,
@@ -104,9 +168,14 @@ export function computeEnrichedRows(
       fundRegionOverride: o.fundRegionOverride,
       aldRatingBand: o.aldRatingBand,
       fundRatingBandOverride: o.fundRatingBandOverride,
-      effectiveIssuerClass: effectiveOverride(o.fundIssuerClassOverride, o.aldIssuerClass),
-      effectiveRegion: effectiveOverride(o.fundRegionOverride, o.aldRegion),
-      effectiveRatingBand: effectiveOverride(o.fundRatingBandOverride, o.aldRatingBand),
+      effectiveIssuerClass,
+      effectiveRegion,
+      effectiveRatingBand,
+      hierarchyTop: hierarchy.hierarchyTop,
+      hierarchyMiddle: hierarchy.hierarchyMiddle,
+      hierarchyBottom: hierarchy.hierarchyBottom,
+      matchedHierarchyRuleId: matched?.id ?? null,
+      descriptorValues,
       activeFeatureIds: [...featureIds].sort((a, b) => a - b),
       scoreByRuleId,
       scoreA,
@@ -115,13 +184,6 @@ export function computeEnrichedRows(
       winningRuleId,
       winningDecisionCode: winningRule?.decisionCode ?? "",
       winningScore,
-      descriptor: d
-        ? {
-            routingQueue: d.routingQueue,
-            slaBucket: d.slaBucket,
-            costCenter: d.costCenter,
-          }
-        : null,
     };
   });
 }

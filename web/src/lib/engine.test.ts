@@ -1,4 +1,4 @@
-import type { Descriptor, Observation, Rule, RuleWeight } from "@prisma/client";
+import type { HierarchyRule, Observation, Rule } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { computeEnrichedRows, kernelizeFeatureIds } from "./engine";
 
@@ -14,26 +14,65 @@ function obs(p: Partial<Observation> & Pick<Observation, "id" | "isin">): Observ
   } as Observation;
 }
 
-const demoWeights: RuleWeight[] = [
-  { ruleId: 1, featureId: 1, weight: 0.5 },
-  { ruleId: 1, featureId: 5, weight: 0.5 },
-  { ruleId: 2, featureId: 2, weight: 0.4 },
-  { ruleId: 2, featureId: 4, weight: 0.6 },
-  { ruleId: 3, featureId: 2, weight: 0.4 },
-  { ruleId: 3, featureId: 3, weight: 0.6 },
-] as RuleWeight[];
-
 const demoRules: Rule[] = [
   { id: 1, decisionCode: "ald_sov_rates_na" },
   { id: 2, decisionCode: "ald_corp_credit_na" },
   { id: 3, decisionCode: "ald_corp_credit_emea" },
 ] as Rule[];
 
-const demoDescriptors: Descriptor[] = [
-  { ruleId: 1, routingQueue: "Q1", slaBucket: "S1", costCenter: "C1" },
-  { ruleId: 2, routingQueue: "Q2", slaBucket: "S2", costCenter: "C2" },
-  { ruleId: 3, routingQueue: "Q3", slaBucket: "S3", costCenter: "C3" },
-] as Descriptor[];
+const demoHierarchyRules: HierarchyRule[] = [
+  {
+    id: 1,
+    ruleId: 1,
+    hierarchyTop: "Debt",
+    hierarchyMiddle: "Govt",
+    hierarchyBottom: "sovereign",
+    descriptor01: "rates_coverage",
+    descriptor02: null,
+    descriptor03: null,
+    descriptor04: null,
+    descriptor05: null,
+    descriptor06: null,
+    descriptor07: null,
+    descriptor08: null,
+    descriptor09: null,
+    descriptor10: null,
+  },
+  {
+    id: 2,
+    ruleId: 3,
+    hierarchyTop: "Debt",
+    hierarchyMiddle: "Corp",
+    hierarchyBottom: "corporate",
+    descriptor01: "credit_coverage",
+    descriptor02: null,
+    descriptor03: null,
+    descriptor04: null,
+    descriptor05: null,
+    descriptor06: null,
+    descriptor07: null,
+    descriptor08: null,
+    descriptor09: null,
+    descriptor10: null,
+  },
+  {
+    id: 3,
+    ruleId: 2,
+    hierarchyTop: "Debt",
+    hierarchyMiddle: "*",
+    hierarchyBottom: "*",
+    descriptor01: "general_debt_coverage",
+    descriptor02: null,
+    descriptor03: null,
+    descriptor04: null,
+    descriptor05: null,
+    descriptor06: null,
+    descriptor07: null,
+    descriptor08: null,
+    descriptor09: null,
+    descriptor10: null,
+  },
+] as HierarchyRule[];
 
 describe("kernelizeFeatureIds", () => {
   it("maps sovereign + na + ig to features 1,4,5", () => {
@@ -126,7 +165,7 @@ describe("kernelizeFeatureIds", () => {
 });
 
 describe("computeEnrichedRows", () => {
-  it("matches demo US treasury row: wins rule 1 with descriptor", () => {
+  it("matches sovereign row to specific hierarchy rule", () => {
     const rows = computeEnrichedRows(
       [
         obs({
@@ -138,59 +177,104 @@ describe("computeEnrichedRows", () => {
         }),
       ],
       demoRules,
-      demoWeights,
-      demoDescriptors,
+      demoHierarchyRules,
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].winningRuleId).toBe(1);
     expect(rows[0].winningScore).toBe(1);
-    expect(rows[0].descriptor).toEqual({ routingQueue: "Q1", slaBucket: "S1", costCenter: "C1" });
+    expect(rows[0].matchedHierarchyRuleId).toBe(1);
+    expect(rows[0].descriptorValues[0]).toBe("rates_coverage");
     expect(rows[0].scoreA).toBe(1);
-    expect(rows[0].scoreB).toBe(0.6);
+    expect(rows[0].scoreB).toBeCloseTo(1 / 3, 5);
     expect(rows[0].scoreC).toBe(0);
   });
 
   it("breaks ties in favor of lower rule_id", () => {
-    const weights: RuleWeight[] = [
-      { ruleId: 1, featureId: 1, weight: 1 },
-      { ruleId: 2, featureId: 1, weight: 1 },
-    ] as RuleWeight[];
     const rules = [
       { id: 2, decisionCode: "second" },
       { id: 1, decisionCode: "first" },
     ] as Rule[];
+    const hierarchyRules = [
+      {
+        id: 1,
+        ruleId: 1,
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "Govt",
+        hierarchyBottom: "sovereign",
+        descriptor01: "A",
+        descriptor02: null,
+        descriptor03: null,
+        descriptor04: null,
+        descriptor05: null,
+        descriptor06: null,
+        descriptor07: null,
+        descriptor08: null,
+        descriptor09: null,
+        descriptor10: null,
+      },
+      {
+        id: 2,
+        ruleId: 2,
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "Govt",
+        hierarchyBottom: "sovereign",
+        descriptor01: "B",
+        descriptor02: null,
+        descriptor03: null,
+        descriptor04: null,
+        descriptor05: null,
+        descriptor06: null,
+        descriptor07: null,
+        descriptor08: null,
+        descriptor09: null,
+        descriptor10: null,
+      },
+    ] as HierarchyRule[];
     const rows = computeEnrichedRows(
       [obs({ id: 1, isin: "T", aldIssuerClass: "sovereign", aldRegion: "xx", aldRatingBand: "xx" })],
       rules,
-      weights,
-      [
-        { ruleId: 1, routingQueue: "A", slaBucket: "A", costCenter: "A" },
-        { ruleId: 2, routingQueue: "B", slaBucket: "B", costCenter: "B" },
-      ] as Descriptor[],
+      hierarchyRules,
     );
     expect(rows[0].winningRuleId).toBe(1);
     expect(rows[0].winningDecisionCode).toBe("first");
   });
 
-  it("returns null descriptor when winning rule has no descriptor row", () => {
+  it("returns null match when no hierarchy rule matches", () => {
     const rows = computeEnrichedRows(
       [obs({ id: 1, isin: "T", aldIssuerClass: "sovereign", aldRegion: "na", aldRatingBand: "ig" })],
       demoRules,
-      demoWeights,
       [],
     );
     expect(rows[0].winningRuleId).toBe(1);
-    expect(rows[0].descriptor).toBeNull();
+    expect(rows[0].matchedHierarchyRuleId).toBeNull();
+    expect(rows[0].descriptorValues[0]).toBeNull();
   });
 
   it("uses score slots a/b/c as zero when rules 1–3 are absent", () => {
     const rules = [{ id: 10, decisionCode: "only_ten" }] as Rule[];
-    const weights = [{ ruleId: 10, featureId: 1, weight: 1 }] as RuleWeight[];
+    const hierarchyRules = [
+      {
+        id: 10,
+        ruleId: 10,
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "Govt",
+        hierarchyBottom: "sovereign",
+        descriptor01: "only_ten",
+        descriptor02: null,
+        descriptor03: null,
+        descriptor04: null,
+        descriptor05: null,
+        descriptor06: null,
+        descriptor07: null,
+        descriptor08: null,
+        descriptor09: null,
+        descriptor10: null,
+      },
+    ] as HierarchyRule[];
     const rows = computeEnrichedRows(
       [obs({ id: 1, isin: "T", aldIssuerClass: "sovereign", aldRegion: "na", aldRatingBand: "ig" })],
       rules,
-      weights,
-      [],
+      hierarchyRules,
     );
     expect(rows[0].scoreA).toBe(0);
     expect(rows[0].scoreB).toBe(0);
@@ -203,8 +287,7 @@ describe("computeEnrichedRows", () => {
     const rows = computeEnrichedRows(
       [obs({ id: 1, isin: "T", aldIssuerClass: "corporate", aldRegion: "na", fundRatingBandOverride: "ig" })],
       demoRules,
-      demoWeights,
-      demoDescriptors,
+      demoHierarchyRules,
     );
     expect(rows[0].activeFeatureIds).toEqual([2, 4, 5]);
   });

@@ -38,8 +38,7 @@
 BEGIN;
 
 DROP TABLE IF EXISTS demo_observation_features;
-DROP TABLE IF EXISTS demo_rule_enrichment;
-DROP TABLE IF EXISTS demo_rule_weights;
+DROP TABLE IF EXISTS demo_hierarchy_enrichment_rules;
 DROP TABLE IF EXISTS demo_rules;
 DROP TABLE IF EXISTS demo_features;
 DROP TABLE IF EXISTS demo_observations;
@@ -52,22 +51,6 @@ CREATE TABLE demo_features (
 CREATE TABLE demo_rules (
   rule_id         SMALLINT PRIMARY KEY,
   decision_code   TEXT NOT NULL UNIQUE
-);
-
--- User-maintained semantic attributes per decision (white columns in the blog UI).
-CREATE TABLE demo_rule_enrichment (
-  rule_id         SMALLINT PRIMARY KEY REFERENCES demo_rules (rule_id),
-  routing_queue   TEXT NOT NULL,
-  sla_bucket      TEXT NOT NULL,
-  cost_center     TEXT NOT NULL
-);
-
--- K: N decisions x M features; row-normalized weights (row sums to 1).
-CREATE TABLE demo_rule_weights (
-  rule_id    SMALLINT NOT NULL REFERENCES demo_rules (rule_id),
-  feature_id SMALLINT NOT NULL REFERENCES demo_features (feature_id),
-  weight     NUMERIC(6, 5) NOT NULL CHECK (weight >= 0 AND weight <= 1),
-  PRIMARY KEY (rule_id, feature_id)
 );
 
 -- Raw observations: Aladdin-style reference columns + nullable fund overrides (UI / semantic layer).
@@ -89,6 +72,25 @@ CREATE TABLE demo_observation_features (
   PRIMARY KEY (observation_id, feature_id)
 );
 
+-- Wildcard-capable hierarchy enrichment rules (specific beats general).
+CREATE TABLE demo_hierarchy_enrichment_rules (
+  hierarchy_rule_id  SMALLINT PRIMARY KEY,
+  rule_id            SMALLINT NOT NULL REFERENCES demo_rules (rule_id),
+  hierarchy_top      TEXT NOT NULL,
+  hierarchy_middle   TEXT NOT NULL,
+  hierarchy_bottom   TEXT NOT NULL,
+  descriptive_value_a TEXT NOT NULL,
+  descriptive_value_b TEXT,
+  descriptive_value_c TEXT,
+  descriptive_value_d TEXT,
+  descriptive_value_e TEXT,
+  descriptive_value_f TEXT,
+  descriptive_value_g TEXT,
+  descriptive_value_h TEXT,
+  descriptive_value_i TEXT,
+  descriptive_value_j TEXT
+);
+
 INSERT INTO demo_features (feature_id, feature_code) VALUES
   (1, 'fi_sovereign'),
   (2, 'fi_corporate'),
@@ -101,16 +103,6 @@ INSERT INTO demo_rules (rule_id, decision_code) VALUES
   (2, 'ald_corp_credit_na'),
   (3, 'ald_corp_credit_emea');
 
-INSERT INTO demo_rule_enrichment (rule_id, routing_queue, sla_bucket, cost_center) VALUES
-  (1, 'SOV-RATES-NA',   'T+0_CLOSE', 'BOOK_NA_GOVT'),
-  (2, 'CORP-CREDIT-NA', 'T+1_STD',   'BOOK_NA_CREDIT'),
-  (3, 'CORP-CREDIT-EMEA', 'T+1_STD', 'BOOK_EMEA_CREDIT');
-
-INSERT INTO demo_rule_weights (rule_id, feature_id, weight) VALUES
-  (1, 1, 0.50), (1, 5, 0.50),
-  (2, 2, 0.40), (2, 4, 0.60),
-  (3, 2, 0.40), (3, 3, 0.60);
-
 -- Synthetic FI securities. Row 3: Aladdin books US corporate in **NA**; fund overrides
 -- **region** to **emea** so it aggregates with EMEA credit cohorts (same scores as DE row).
 INSERT INTO demo_observations (
@@ -120,7 +112,21 @@ INSERT INTO demo_observations (
 ) VALUES
   ('US00ALDINFI01', 'sovereign', NULL, 'na',   NULL, 'ig',   NULL),
   ('DE00ALDINFI02', 'corporate', NULL, 'emea', NULL, 'core', NULL),
-  ('US00ALDINFI03', 'corporate', NULL, 'na',   'emea', 'core', NULL);
+  ('US00ALDINFI03', 'corporate', NULL, 'na',   'emea', 'core', NULL),
+  ('GB00ALDINFI04', 'sovereign', NULL, 'emea', NULL, 'ig',   NULL),
+  ('FR00ALDINFI05', 'corporate', NULL, 'emea', NULL, 'ig',   'core'),
+  ('CA00ALDINFI06', 'corporate', NULL, 'na',   'emea', 'core', NULL),
+  ('US00ALDINFI07', 'derivative',NULL, 'na',   NULL, 'core', NULL);
+
+-- Rules are matched by effective hierarchy using '*' as wildcard.
+-- Specificity precedence: rule with more non-wildcard levels wins.
+INSERT INTO demo_hierarchy_enrichment_rules (
+  hierarchy_rule_id, rule_id, hierarchy_top, hierarchy_middle, hierarchy_bottom,
+  descriptive_value_a, descriptive_value_b, descriptive_value_c, descriptive_value_d
+) VALUES
+  (1, 1, 'Debt', 'Govt',  'sovereign', 'rates_coverage', 'SOV-RATES-NA', 'T+0_CLOSE', 'BOOK_NA_GOVT'),
+  (2, 3, 'Debt', 'Corp',  'corporate', 'credit_coverage', 'CORP-CREDIT-EMEA', 'T+1_STD', 'BOOK_EMEA_CREDIT'),
+  (3, 2, 'Debt', '*',     '*',         'general_debt_coverage', 'CORP-CREDIT-NA', 'T+1_STD', 'BOOK_NA_CREDIT');
 
 -- ---------------------------------------------------------------------------
 -- Kernelization: qualitative -> fixed binary features in R^M
@@ -157,21 +163,19 @@ LEFT JOIN demo_observation_features ofe ON ofe.observation_id = o.observation_id
 GROUP BY o.observation_id, o.isin
 ORDER BY o.observation_id;
 
--- K: same M axes; cell = weight k_im (0 if absent).
+-- Runtime hierarchy rules (no static K table): specificity drives real-time score.
 SELECT
-  'VARIABLE_SPACE_K_ROWS' AS section,
-  r.rule_id,
+  'HIERARCHY_RULE_SPACE' AS section,
+  hr.hierarchy_rule_id,
+  hr.rule_id,
   r.decision_code,
-  COALESCE(MAX(CASE WHEN rw.feature_id = 1 THEN rw.weight END), 0) AS w_fi_sovereign,
-  COALESCE(MAX(CASE WHEN rw.feature_id = 2 THEN rw.weight END), 0) AS w_fi_corporate,
-  COALESCE(MAX(CASE WHEN rw.feature_id = 3 THEN rw.weight END), 0) AS w_region_emea,
-  COALESCE(MAX(CASE WHEN rw.feature_id = 4 THEN rw.weight END), 0) AS w_region_na,
-  COALESCE(MAX(CASE WHEN rw.feature_id = 5 THEN rw.weight END), 0) AS w_rating_ig,
-  SUM(rw.weight) AS row_weight_sum
-FROM demo_rules r
-JOIN demo_rule_weights rw ON rw.rule_id = r.rule_id
-GROUP BY r.rule_id, r.decision_code
-ORDER BY r.rule_id;
+  hr.hierarchy_top,
+  hr.hierarchy_middle,
+  hr.hierarchy_bottom,
+  hr.descriptive_value_a
+FROM demo_hierarchy_enrichment_rules hr
+JOIN demo_rules r ON r.rule_id = hr.rule_id
+ORDER BY hr.hierarchy_rule_id;
 
 -- ---------------------------------------------------------------------------
 -- Subject space: each row is one feature's vector over observations (transpose
@@ -180,31 +184,51 @@ ORDER BY r.rule_id;
 SELECT
   'SUBJECT_SPACE_BY_ISIN' AS section,
   fe.feature_code,
-  COALESCE(MAX(CASE WHEN o.isin = 'US00ALDINFI01' THEN 1 END), 0) AS sec_us_sov_na,
-  COALESCE(MAX(CASE WHEN o.isin = 'DE00ALDINFI02' THEN 1 END), 0) AS sec_de_corp_emea,
-  COALESCE(MAX(CASE WHEN o.isin = 'US00ALDINFI03' THEN 1 END), 0) AS sec_us_corp_na
+  o.isin,
+  COALESCE(MAX(CASE WHEN ofe.feature_id IS NOT NULL THEN 1 END), 0) AS is_active
 FROM demo_features fe
-LEFT JOIN demo_observation_features ofe ON ofe.feature_id = fe.feature_id
-LEFT JOIN demo_observations o ON o.observation_id = ofe.observation_id
-GROUP BY fe.feature_id, fe.feature_code
-ORDER BY fe.feature_id;
+CROSS JOIN demo_observations o
+LEFT JOIN demo_observation_features ofe
+  ON ofe.feature_id = fe.feature_id
+ AND ofe.observation_id = o.observation_id
+GROUP BY fe.feature_id, fe.feature_code, o.isin
+ORDER BY fe.feature_id, o.isin;
 
 -- ---------------------------------------------------------------------------
 -- Linear layer: s_ij = <k_i, d_j> = sum_m k_im * d_jm  (sparse; same as one
 -- column of K * D^T). Each column j is an N-vector of pre-max "scores".
 -- ---------------------------------------------------------------------------
-WITH scores AS (
+WITH obs_hierarchy AS (
   SELECT
     o.observation_id,
     o.isin,
+    'Debt'::TEXT AS hierarchy_top,
+    CASE
+      WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'sovereign' THEN 'Govt'
+      WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 'Corp'
+      ELSE 'Deriv'
+    END AS hierarchy_middle,
+    COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom
+  FROM demo_observations o
+),
+dense_scores AS (
+  SELECT
+    oh.observation_id,
+    oh.isin,
     r.rule_id,
     r.decision_code,
-    SUM(rw.weight) AS score
-  FROM demo_observations o
-  JOIN demo_observation_features ofe ON ofe.observation_id = o.observation_id
-  JOIN demo_rule_weights rw ON rw.feature_id = ofe.feature_id
-  JOIN demo_rules r ON r.rule_id = rw.rule_id
-  GROUP BY o.observation_id, o.isin, r.rule_id, r.decision_code
+    COALESCE(MAX(((hr.hierarchy_top <> '*')::INT + (hr.hierarchy_middle <> '*')::INT + (hr.hierarchy_bottom <> '*')::INT) / 3.0), 0) AS score
+  FROM obs_hierarchy oh
+  CROSS JOIN demo_rules r
+  LEFT JOIN demo_hierarchy_enrichment_rules hr
+    ON hr.rule_id = r.rule_id
+   AND (hr.hierarchy_top = '*' OR hr.hierarchy_top = oh.hierarchy_top)
+   AND (hr.hierarchy_middle = '*' OR hr.hierarchy_middle = oh.hierarchy_middle)
+   AND (hr.hierarchy_bottom = '*' OR hr.hierarchy_bottom = oh.hierarchy_bottom)
+  GROUP BY oh.observation_id, oh.isin, r.rule_id, r.decision_code
+),
+scores AS (
+  SELECT * FROM dense_scores WHERE score > 0
 )
 SELECT
   'LINEAR_LAYER_SCORES' AS section,
@@ -219,18 +243,34 @@ ORDER BY observation_id, rule_id;
 -- ---------------------------------------------------------------------------
 -- Gating: argmax over outcomes (hard max). rn = 1 is the winning class.
 -- ---------------------------------------------------------------------------
-WITH scores AS (
+WITH obs_hierarchy AS (
   SELECT
     o.observation_id,
     o.isin,
+    'Debt'::TEXT AS hierarchy_top,
+    CASE
+      WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'sovereign' THEN 'Govt'
+      WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 'Corp'
+      ELSE 'Deriv'
+    END AS hierarchy_middle,
+    COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom
+  FROM demo_observations o
+),
+scores AS (
+  SELECT
+    oh.observation_id,
+    oh.isin,
     r.rule_id,
     r.decision_code,
-    SUM(rw.weight) AS score
-  FROM demo_observations o
-  JOIN demo_observation_features ofe ON ofe.observation_id = o.observation_id
-  JOIN demo_rule_weights rw ON rw.feature_id = ofe.feature_id
-  JOIN demo_rules r ON r.rule_id = rw.rule_id
-  GROUP BY o.observation_id, o.isin, r.rule_id, r.decision_code
+    COALESCE(MAX(((hr.hierarchy_top <> '*')::INT + (hr.hierarchy_middle <> '*')::INT + (hr.hierarchy_bottom <> '*')::INT) / 3.0), 0) AS score
+  FROM obs_hierarchy oh
+  CROSS JOIN demo_rules r
+  LEFT JOIN demo_hierarchy_enrichment_rules hr
+    ON hr.rule_id = r.rule_id
+   AND (hr.hierarchy_top = '*' OR hr.hierarchy_top = oh.hierarchy_top)
+   AND (hr.hierarchy_middle = '*' OR hr.hierarchy_middle = oh.hierarchy_middle)
+   AND (hr.hierarchy_bottom = '*' OR hr.hierarchy_bottom = oh.hierarchy_bottom)
+  GROUP BY oh.observation_id, oh.isin, r.rule_id, r.decision_code
 ),
 ranked AS (
   SELECT
@@ -253,17 +293,30 @@ ORDER BY observation_id;
 -- ---------------------------------------------------------------------------
 WITH dense_scores AS (
   SELECT
-    o.observation_id,
-    o.isin,
+    oh.observation_id,
+    oh.isin,
     r.rule_id,
-    COALESCE(SUM(rw.weight), 0) AS score
-  FROM demo_observations o
+    COALESCE(MAX(((hr.hierarchy_top <> '*')::INT + (hr.hierarchy_middle <> '*')::INT + (hr.hierarchy_bottom <> '*')::INT) / 3.0), 0) AS score
+  FROM (
+    SELECT
+      o.observation_id,
+      o.isin,
+      'Debt'::TEXT AS hierarchy_top,
+      CASE
+        WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'sovereign' THEN 'Govt'
+        WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 'Corp'
+        ELSE 'Deriv'
+      END AS hierarchy_middle,
+      COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom
+    FROM demo_observations o
+  ) oh
   CROSS JOIN demo_rules r
-  LEFT JOIN demo_observation_features ofe ON ofe.observation_id = o.observation_id
-  LEFT JOIN demo_rule_weights rw
-    ON rw.rule_id = r.rule_id
-   AND rw.feature_id = ofe.feature_id
-  GROUP BY o.observation_id, o.isin, r.rule_id
+  LEFT JOIN demo_hierarchy_enrichment_rules hr
+    ON hr.rule_id = r.rule_id
+   AND (hr.hierarchy_top = '*' OR hr.hierarchy_top = oh.hierarchy_top)
+   AND (hr.hierarchy_middle = '*' OR hr.hierarchy_middle = oh.hierarchy_middle)
+   AND (hr.hierarchy_bottom = '*' OR hr.hierarchy_bottom = oh.hierarchy_bottom)
+  GROUP BY oh.observation_id, oh.isin, r.rule_id
 ),
 wide AS (
   SELECT
@@ -309,17 +362,30 @@ ORDER BY observation_id, decision_slot;
 -- ---------------------------------------------------------------------------
 WITH dense_scores AS (
   SELECT
-    o.observation_id,
-    o.isin,
+    oh.observation_id,
+    oh.isin,
     r.rule_id,
-    COALESCE(SUM(rw.weight), 0) AS score
-  FROM demo_observations o
+    COALESCE(MAX(((hr.hierarchy_top <> '*')::INT + (hr.hierarchy_middle <> '*')::INT + (hr.hierarchy_bottom <> '*')::INT) / 3.0), 0) AS score
+  FROM (
+    SELECT
+      o.observation_id,
+      o.isin,
+      'Debt'::TEXT AS hierarchy_top,
+      CASE
+        WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'sovereign' THEN 'Govt'
+        WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 'Corp'
+        ELSE 'Deriv'
+      END AS hierarchy_middle,
+      COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom
+    FROM demo_observations o
+  ) oh
   CROSS JOIN demo_rules r
-  LEFT JOIN demo_observation_features ofe ON ofe.observation_id = o.observation_id
-  LEFT JOIN demo_rule_weights rw
-    ON rw.rule_id = r.rule_id
-   AND rw.feature_id = ofe.feature_id
-  GROUP BY o.observation_id, o.isin, r.rule_id
+  LEFT JOIN demo_hierarchy_enrichment_rules hr
+    ON hr.rule_id = r.rule_id
+   AND (hr.hierarchy_top = '*' OR hr.hierarchy_top = oh.hierarchy_top)
+   AND (hr.hierarchy_middle = '*' OR hr.hierarchy_middle = oh.hierarchy_middle)
+   AND (hr.hierarchy_bottom = '*' OR hr.hierarchy_bottom = oh.hierarchy_bottom)
+  GROUP BY oh.observation_id, oh.isin, r.rule_id
 ),
 wide AS (
   SELECT
@@ -351,6 +417,36 @@ ranked AS (
     u.*,
     ROW_NUMBER() OVER (PARTITION BY u.observation_id ORDER BY u.pre_max_score DESC, u.rule_id) AS rn
   FROM unpivoted u
+),
+obs_hierarchy AS (
+  SELECT
+    o.observation_id,
+    'Debt'::TEXT AS hierarchy_top,
+    CASE
+      WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'sovereign' THEN 'Govt'
+      WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 'Corp'
+      ELSE 'Deriv'
+    END AS hierarchy_middle,
+    COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS hierarchy_bottom
+  FROM demo_observations o
+),
+hierarchy_candidates AS (
+  SELECT
+    oh.observation_id,
+    hr.hierarchy_rule_id,
+    hr.descriptive_value_a,
+    ((hr.hierarchy_top <> '*')::INT + (hr.hierarchy_middle <> '*')::INT + (hr.hierarchy_bottom <> '*')::INT) AS specificity
+  FROM obs_hierarchy oh
+  JOIN demo_hierarchy_enrichment_rules hr
+    ON (hr.hierarchy_top = '*' OR hr.hierarchy_top = oh.hierarchy_top)
+   AND (hr.hierarchy_middle = '*' OR hr.hierarchy_middle = oh.hierarchy_middle)
+   AND (hr.hierarchy_bottom = '*' OR hr.hierarchy_bottom = oh.hierarchy_bottom)
+),
+hierarchy_ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (PARTITION BY observation_id ORDER BY specificity DESC, hierarchy_rule_id ASC) AS rn
+  FROM hierarchy_candidates
 )
 SELECT
   'ENRICHED_OBSERVATION_ROW' AS section,
@@ -370,14 +466,21 @@ SELECT
   w.c AS score_c,
   r.decision_code AS winning_workstream,
   win.pre_max_score AS winning_score,
-  e.routing_queue,
-  e.sla_bucket,
-  e.cost_center
+  hm.descriptive_value_a,
+  hm.descriptive_value_b AS descriptor_02,
+  hm.descriptive_value_c AS descriptor_03,
+  hm.descriptive_value_d AS descriptor_04,
+  hm.descriptive_value_e AS descriptor_05,
+  hm.descriptive_value_f AS descriptor_06,
+  hm.descriptive_value_g AS descriptor_07,
+  hm.descriptive_value_h AS descriptor_08,
+  hm.descriptive_value_i AS descriptor_09,
+  hm.descriptive_value_j AS descriptor_10
 FROM demo_observations o
 JOIN wide w ON w.observation_id = o.observation_id
 JOIN ranked win ON win.observation_id = o.observation_id AND win.rn = 1
 JOIN demo_rules r ON r.rule_id = win.rule_id
-JOIN demo_rule_enrichment e ON e.rule_id = win.rule_id
+LEFT JOIN hierarchy_ranked hm ON hm.observation_id = o.observation_id AND hm.rn = 1
 ORDER BY o.observation_id;
 
 COMMIT;

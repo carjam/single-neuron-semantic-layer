@@ -1,17 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const oFindMany = vi.hoisted(() => vi.fn());
-const rFindMany = vi.hoisted(() => vi.fn());
-const rwFindMany = vi.hoisted(() => vi.fn());
-const dFindMany = vi.hoisted(() => vi.fn());
+const loadEnrichedRows = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    observation: { findMany: oFindMany },
-    rule: { findMany: rFindMany },
-    ruleWeight: { findMany: rwFindMany },
-    descriptor: { findMany: dFindMany },
-  },
+vi.mock("@/lib/loadEnrichedRows", () => ({
+  loadEnrichedRows,
 }));
 
 import { GET } from "./route";
@@ -20,9 +12,9 @@ describe("GET /api/enriched/export", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns CSV with BOM and attachment headers", async () => {
-    oFindMany.mockResolvedValue([
+    loadEnrichedRows.mockResolvedValue([
       {
-        id: 1,
+        observationId: 1,
         isin: "X",
         aldIssuerClass: "sovereign",
         fundIssuerClassOverride: null,
@@ -30,13 +22,24 @@ describe("GET /api/enriched/export", () => {
         fundRegionOverride: null,
         aldRatingBand: "ig",
         fundRatingBandOverride: null,
+        effectiveIssuerClass: "sovereign",
+        effectiveRegion: "na",
+        effectiveRatingBand: "ig",
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "Govt",
+        hierarchyBottom: "sovereign",
+        matchedHierarchyRuleId: 1,
+        descriptorValues: ["rates_coverage", null, null, null, null, null, null, null, null, null],
+        activeFeatureIds: [1, 4, 5],
+        scoreByRuleId: { 1: 1 },
+        scoreA: 1,
+        scoreB: 0,
+        scoreC: 0,
+        winningRuleId: 1,
+        winningDecisionCode: "d1",
+        winningScore: 1,
       },
     ]);
-    rFindMany.mockResolvedValue([{ id: 1, decisionCode: "d1" }]);
-    rwFindMany.mockResolvedValue([
-      { ruleId: 1, featureId: 1, weight: 1 },
-    ]);
-    dFindMany.mockResolvedValue([{ ruleId: 1, routingQueue: "Q", slaBucket: "S", costCenter: "C" }]);
 
     const res = await GET();
     expect(res.status).toBe(200);

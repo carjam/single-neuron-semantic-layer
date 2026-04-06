@@ -7,44 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Outcome / workstream (subject option); scoring weights live in RuleWeight.
+/// Outcome / workstream (subject option) selected by argmax.
 model Rule {
-  id           Int           @id @map("rule_id")
-  decisionCode String        @unique @map("decision_code")
-  descriptor   Descriptor?
-  weights      RuleWeight[]
+  id             Int             @id @map("rule_id")
+  decisionCode   String          @unique @map("decision_code")
+  hierarchyRules HierarchyRule[]
 
   @@map("rules")
 }
 
-/// User-maintained semantic “white columns” per decision (routing, SLA, book).
-model Descriptor {
-  ruleId       Int    @id @map("rule_id")
-  routingQueue String @map("routing_queue")
-  slaBucket    String @map("sla_bucket")
-  costCenter   String @map("cost_center")
-  rule         Rule   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-
-  @@map("descriptors")
-}
-
 model Feature {
-  id      Int          @id @map("feature_id")
-  code    String       @unique @map("feature_code")
-  weights RuleWeight[]
+  id   Int    @id @map("feature_id")
+  code String @unique @map("feature_code")
 
   @@map("features")
-}
-
-model RuleWeight {
-  ruleId    Int
-  featureId Int
-  weight    Float
-  rule      Rule    @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
-
-  @@id([ruleId, featureId])
-  @@map("rule_weights")
 }
 
 /// Raw security rows: vendor (ald_*) + optional fund overrides.
@@ -59,4 +35,26 @@ model Observation {
   fundRatingBandOverride  String? @map("fund_rating_band_override")
 
   @@map("observations")
+}
+
+/// Wildcard-capable hierarchy rules used for precedence enrichment.
+model HierarchyRule {
+  id               Int    @id @default(autoincrement()) @map("hierarchy_rule_id")
+  ruleId           Int    @map("rule_id")
+  hierarchyTop     String @map("hierarchy_top")
+  hierarchyMiddle  String @map("hierarchy_middle")
+  hierarchyBottom  String @map("hierarchy_bottom")
+  descriptor01     String @map("descriptive_value_a")
+  descriptor02     String? @map("descriptive_value_b")
+  descriptor03     String? @map("descriptive_value_c")
+  descriptor04     String? @map("descriptive_value_d")
+  descriptor05     String? @map("descriptive_value_e")
+  descriptor06     String? @map("descriptive_value_f")
+  descriptor07     String? @map("descriptive_value_g")
+  descriptor08     String? @map("descriptive_value_h")
+  descriptor09     String? @map("descriptive_value_i")
+  descriptor10     String? @map("descriptive_value_j")
+  rule             Rule   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("hierarchy_enrichment_rules")
 }

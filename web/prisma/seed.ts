@@ -3,9 +3,8 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  await prisma.descriptor.deleteMany();
-  await prisma.ruleWeight.deleteMany();
   await prisma.observation.deleteMany();
+  await prisma.hierarchyRule.deleteMany();
   await prisma.rule.deleteMany();
   await prisma.feature.deleteMany();
 
@@ -24,40 +23,6 @@ async function main() {
       { id: 1, decisionCode: "ald_sov_rates_na" },
       { id: 2, decisionCode: "ald_corp_credit_na" },
       { id: 3, decisionCode: "ald_corp_credit_emea" },
-    ],
-  });
-
-  await prisma.descriptor.createMany({
-    data: [
-      {
-        ruleId: 1,
-        routingQueue: "SOV-RATES-NA",
-        slaBucket: "T+0_CLOSE",
-        costCenter: "BOOK_NA_GOVT",
-      },
-      {
-        ruleId: 2,
-        routingQueue: "CORP-CREDIT-NA",
-        slaBucket: "T+1_STD",
-        costCenter: "BOOK_NA_CREDIT",
-      },
-      {
-        ruleId: 3,
-        routingQueue: "CORP-CREDIT-EMEA",
-        slaBucket: "T+1_STD",
-        costCenter: "BOOK_EMEA_CREDIT",
-      },
-    ],
-  });
-
-  await prisma.ruleWeight.createMany({
-    data: [
-      { ruleId: 1, featureId: 1, weight: 0.5 },
-      { ruleId: 1, featureId: 5, weight: 0.5 },
-      { ruleId: 2, featureId: 2, weight: 0.4 },
-      { ruleId: 2, featureId: 4, weight: 0.6 },
-      { ruleId: 3, featureId: 2, weight: 0.4 },
-      { ruleId: 3, featureId: 3, weight: 0.6 },
     ],
   });
 
@@ -89,6 +54,77 @@ async function main() {
         fundRegionOverride: "emea",
         aldRatingBand: "core",
         fundRatingBandOverride: null,
+      },
+      {
+        isin: "GB00ALDINFI04",
+        aldIssuerClass: "sovereign",
+        fundIssuerClassOverride: null,
+        aldRegion: "emea",
+        fundRegionOverride: null,
+        aldRatingBand: "ig",
+        fundRatingBandOverride: null,
+      },
+      {
+        isin: "FR00ALDINFI05",
+        aldIssuerClass: "corporate",
+        fundIssuerClassOverride: null,
+        aldRegion: "emea",
+        fundRegionOverride: null,
+        aldRatingBand: "ig",
+        fundRatingBandOverride: "core",
+      },
+      {
+        isin: "CA00ALDINFI06",
+        aldIssuerClass: "corporate",
+        fundIssuerClassOverride: null,
+        aldRegion: "na",
+        fundRegionOverride: "emea",
+        aldRatingBand: "core",
+        fundRatingBandOverride: null,
+      },
+      {
+        isin: "US00ALDINFI07",
+        aldIssuerClass: "derivative",
+        fundIssuerClassOverride: null,
+        aldRegion: "na",
+        fundRegionOverride: null,
+        aldRatingBand: "core",
+        fundRatingBandOverride: null,
+      },
+    ],
+  });
+
+  await prisma.hierarchyRule.createMany({
+    data: [
+      {
+        ruleId: 1,
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "Govt",
+        hierarchyBottom: "sovereign",
+        descriptor01: "rates_coverage",
+        descriptor02: "SOV-RATES-NA",
+        descriptor03: "T+0_CLOSE",
+        descriptor04: "BOOK_NA_GOVT",
+      },
+      {
+        ruleId: 3,
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "Corp",
+        hierarchyBottom: "corporate",
+        descriptor01: "credit_coverage",
+        descriptor02: "CORP-CREDIT-EMEA",
+        descriptor03: "T+1_STD",
+        descriptor04: "BOOK_EMEA_CREDIT",
+      },
+      {
+        ruleId: 2,
+        hierarchyTop: "Debt",
+        hierarchyMiddle: "*",
+        hierarchyBottom: "*",
+        descriptor01: "general_debt_coverage",
+        descriptor02: "CORP-CREDIT-NA",
+        descriptor03: "T+1_STD",
+        descriptor04: "BOOK_NA_CREDIT",
       },
     ],
   });
