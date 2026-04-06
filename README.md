@@ -1,10 +1,18 @@
 # Semantic layer + SQL expert system (portfolio)
 
-**Problem the demo illustrates:** Aladdin (and similar platforms) ship each security with a **vendor classification hierarchy**. **Fund managers** often need a **parallel, fund-specific taxonomy** so they can **aggregate and compare** names that vendor metadata would keep in separate buckets—without perpetual **manual munging** in spreadsheets. The original system gave them an **interactive semantic layer**: at whatever **hierarchy level** they chose (issuer type, region, rating bucket, …), they could record an **override value** that **takes precedence** over the vendor field when scoring, reporting, and routing.
+## Situation & solution (read this first)
 
-**Demo domain:** **Synthetic** fixed income rows shaped like a security-master extract: **`ald_*`** columns mimic vendor reference data; nullable **`fund_*_override`** columns mimic PM-maintained semantics. **Effective** attributes are `COALESCE(non-blank override, ald_*)` before **kernelization**. Workstream outcomes (`ald_sov_rates_na`, …) stand in for analytics/ops routing. *Aladdin® is a registered trademark of BlackRock, Inc.; this project is **not** affiliated with BlackRock and uses **no** vendor or production data.*
+**What Aladdin (and similar platforms) does:** Each fixed income security arrives with a **vendor-defined classification hierarchy**—issuer type, region, rating band, and deeper levels—serving as the platform’s **reference taxonomy**.
 
-This repository is a **public, synthetic** companion to a production system I designed and built at a former employer. It documents architecture and tradeoffs and ships runnable SQL—**kernelization** on **effective** classifications, **variable / subject space**, **linear scores**, **`UNPIVOT` / `LATERAL VALUES`**, **argmax**, **`ENRICHED_OBSERVATION_ROW`**—including a **fund region override** on one US corporate that rebooks it from **NA** to **EMEA** for scoring. Formalism is in **How the scoring engine works**; sample I/O is in **Worked example** and **Demo data model**.
+**What fund managers needed:** A way to **aggregate, compare, and route** securities using **their own** grouping rules when those rules **diverge** from the vendor’s. Without tooling, that meant **repeated manual data munging** (spreadsheet remaps, ad hoc joins) before every analysis or handoff.
+
+**What the production system provided:** An **interactive semantic layer**. For **each security**, and for **whatever hierarchy level they chose** (issuer, region, rating bucket, …), users could enter an **optional override value**. When present, that value **replaces the vendor field for scoring, enrichment, and workstream assignment**; when absent, the **vendor value is used unchanged**. The **vendor attributes are always retained** on the row (`ald_*`) alongside overrides (`fund_*_override`) and the **computed effective** values actually fed into the engine—so PMs get **fund-native roll-ups** while **preserving lineage** back to the Aladdin-classified source for audit, compliance, and reconciliation.
+
+**What this repository demonstrates:** The same idea in **minimal SQL**: synthetic `ald_*` + nullable `fund_*_override` → **effective** → kernelization → linear scores (`K`) → argmax → **`ENRICHED_OBSERVATION_ROW`**. The worked example includes a **fund region override** that rebooks a US corporate from **NA** to **EMEA** for internal aggregation **without** editing the vendor feed.
+
+*Aladdin® is a registered trademark of BlackRock, Inc. This project is **not** affiliated with BlackRock, uses **no** vendor or production data, and all ISINs are **fabricated**.*
+
+This repository is a **public, synthetic** companion to a production system I designed and built at a former employer. **Technical primer** (linear algebra, argmax gate): **How the scoring engine works**. **Sample I/O** (vendor vs fund vs effective): **Demo data model** and **Worked example**.
 
 **Original write-up (2019 context, published 2020):** [Building a Semantic Layer Using AI](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html)
 
@@ -17,6 +25,8 @@ This repository is a **public, synthetic** companion to a production system I de
 ## How the scoring engine works
 
 ### Stakeholder view (what each “run” decides)
+
+This is the operational view of the pipeline described in **[Situation & solution](#situation--solution-read-this-first)** above.
 
 For every **security** in scope, the engine **chooses exactly one subject option**—here, an **analytics / operations workstream**—and **attaches that outcome’s descriptor fields** (routing queue, SLA bucket, book tag). **Inputs** combine **vendor reference** (`ald_*`) with optional **fund overrides** (`fund_*_override`) maintained in the semantic layer UI; **scoring uses the effective hierarchy** after overrides. The **output** is **one enriched row per security** (vendor columns, optional overrides, and **computed effective** values used for scoring), so PMs can **aggregate on their taxonomy** while preserving lineage to Aladdin-classified data for audit and reconciliation.
 
