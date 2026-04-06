@@ -1,0 +1,373 @@
+openapi: 3.0.3
+info:
+  title: Semantic layer demo API
+  description: |
+    REST surface for the portfolio toy UI: **descriptors** (per-outcome routing, SLA, and book metadata),
+    **rules** (outcomes / workstreams), and **enriched observations** (kernelization → scores → argmax → joined descriptors).
+    JSON responses use `application/json` unless noted.
+  version: 1.0.0
+
+servers:
+  - url: /
+    description: Current host (e.g. http://localhost:3000)
+
+tags:
+  - name: Descriptors
+    description: CRUD for semantic attributes keyed by outcome (`rule_id`).
+  - name: Rules
+    description: Outcome keys and whether a descriptor row exists.
+  - name: Enriched
+    description: Read-only computed rows and CSV export.
+
+paths:
+  /api/descriptors:
+    get:
+      tags: [Descriptors]
+      summary: List all descriptors
+      operationId: listDescriptors
+      responses:
+        "200":
+          description: Ordered by `ruleId` ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DescriptorListResponse"
+    post:
+      tags: [Descriptors]
+      summary: Create a descriptor for a rule
+      description: Fails with 409 if a descriptor already exists for the rule (use PATCH).
+      operationId: createDescriptor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DescriptorCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DescriptorSingleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/RuleNotFound"
+        "409":
+          description: Descriptor already exists for this rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /api/descriptors/{ruleId}:
+    parameters:
+      - $ref: "#/components/parameters/RuleId"
+    get:
+      tags: [Descriptors]
+      summary: Get one descriptor by rule id
+      operationId: getDescriptor
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DescriptorSingleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/DescriptorNotFound"
+    patch:
+      tags: [Descriptors]
+      summary: Update descriptor fields
+      description: At least one of `routingQueue`, `slaBucket`, `costCenter` must be provided.
+      operationId: patchDescriptor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DescriptorPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DescriptorSingleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/DescriptorNotFound"
+    delete:
+      tags: [Descriptors]
+      summary: Delete a descriptor
+      operationId: deleteDescriptor
+      responses:
+        "204":
+          description: Deleted (no body)
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/DescriptorNotFound"
+
+  /api/rules:
+    get:
+      tags: [Rules]
+      summary: List rules and descriptor presence
+      operationId: listRules
+      responses:
+        "200":
+          description: Ordered by `ruleId` ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulesListResponse"
+
+  /api/enriched:
+    get:
+      tags: [Enriched]
+      summary: List enriched observation rows (JSON)
+      description: |
+        Computes the same pipeline as `ENRICHED_OBSERVATION_ROW` in the SQL demo: effective attributes →
+        feature ids → dense scores per outcome → argmax (tie-break lower `rule_id`) → join descriptor for winner.
+      operationId: listEnriched
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrichedListResponse"
+
+  /api/enriched/export:
+    get:
+      tags: [Enriched]
+      summary: Download enriched rows as CSV
+      description: UTF-8 with BOM; attachment filename `enriched_observations.csv`.
+      operationId: exportEnrichedCsv
+      responses:
+        "200":
+          description: CSV body
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+components:
+  parameters:
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+      description: Outcome / workstream id (`rule_id`).
+
+  responses:
+    BadRequest:
+      description: Invalid input or JSON
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    DescriptorNotFound:
+      description: No descriptor for this rule
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    RuleNotFound:
+      description: Rule does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    DescriptorItem:
+      type: object
+      required:
+        - ruleId
+        - decisionCode
+        - routingQueue
+        - slaBucket
+        - costCenter
+      properties:
+        ruleId:
+          type: integer
+          example: 1
+        decisionCode:
+          type: string
+          example: ald_sov_rates_na
+        routingQueue:
+          type: string
+          example: SOV-RATES-NA
+        slaBucket:
+          type: string
+          example: T+0_CLOSE
+        costCenter:
+          type: string
+          example: BOOK_NA_GOVT
+
+    DescriptorListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DescriptorItem"
+
+    DescriptorSingleResponse:
+      type: object
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/DescriptorItem"
+
+    DescriptorCreate:
+      type: object
+      required: [ruleId, routingQueue, slaBucket, costCenter]
+      properties:
+        ruleId:
+          type: integer
+          minimum: 1
+        routingQueue:
+          type: string
+        slaBucket:
+          type: string
+        costCenter:
+          type: string
+
+    DescriptorPatch:
+      type: object
+      properties:
+        routingQueue:
+          type: string
+        slaBucket:
+          type: string
+        costCenter:
+          type: string
+
+    RuleSummary:
+      type: object
+      required: [ruleId, decisionCode, hasDescriptor]
+      properties:
+        ruleId:
+          type: integer
+        decisionCode:
+          type: string
+        hasDescriptor:
+          type: boolean
+
+    RulesListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleSummary"
+
+    DescriptorPayload:
+      type: object
+      properties:
+        routingQueue:
+          type: string
+        slaBucket:
+          type: string
+        costCenter:
+          type: string
+
+    EnrichedRow:
+      type: object
+      required:
+        - observationId
+        - isin
+        - aldIssuerClass
+        - aldRegion
+        - aldRatingBand
+        - effectiveIssuerClass
+        - effectiveRegion
+        - effectiveRatingBand
+        - activeFeatureIds
+        - scoreByRuleId
+        - scoreA
+        - scoreB
+        - scoreC
+        - winningRuleId
+        - winningDecisionCode
+        - winningScore
+        - descriptor
+      properties:
+        observationId:
+          type: integer
+        isin:
+          type: string
+        aldIssuerClass:
+          type: string
+        fundIssuerClassOverride:
+          type: string
+          nullable: true
+        aldRegion:
+          type: string
+        fundRegionOverride:
+          type: string
+          nullable: true
+        aldRatingBand:
+          type: string
+        fundRatingBandOverride:
+          type: string
+          nullable: true
+        effectiveIssuerClass:
+          type: string
+        effectiveRegion:
+          type: string
+        effectiveRatingBand:
+          type: string
+        activeFeatureIds:
+          type: array
+          items:
+            type: integer
+        scoreByRuleId:
+          type: object
+          additionalProperties:
+            type: number
+        scoreA:
+          type: number
+          description: Pre-max score for rule_id 1 (slot a).
+        scoreB:
+          type: number
+        scoreC:
+          type: number
+        winningRuleId:
+          type: integer
+        winningDecisionCode:
+          type: string
+        winningScore:
+          type: number
+        descriptor:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/DescriptorPayload"
+
+    EnrichedListResponse:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/EnrichedRow"

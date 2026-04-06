@@ -6,7 +6,11 @@ const link =
 const active =
   "rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900";
 
-export function Nav({ current }: { current: "home" | "descriptors" | "enriched" }) {
+export function Nav({
+  current,
+}: {
+  current: "home" | "descriptors" | "enriched" | "api-docs";
+}) {
   return (
     <header className="border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -22,6 +26,9 @@ export function Nav({ current }: { current: "home" | "descriptors" | "enriched" 
           </Link>
           <Link href="/enriched" className={current === "enriched" ? active : link}>
             Enriched output
+          </Link>
+          <Link href="/api-docs" className={current === "api-docs" ? active : link}>
+            API (OpenAPI)
           </Link>
         </nav>
       </div>
