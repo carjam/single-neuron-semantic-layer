@@ -1,15 +1,5 @@
-"use client";
-
-import dynamic from "next/dynamic";
+import Script from "next/script";
 import { Nav } from "@/components/Nav";
-import "swagger-ui-react/swagger-ui.css";
-
-const SwaggerUI = dynamic(() => import("swagger-ui-react"), {
-  ssr: false,
-  loading: () => (
-    <p className="px-4 py-10 text-sm text-zinc-500">Loading OpenAPI reference…</p>
-  ),
-});
 
 export default function ApiDocsPage() {
   return (
@@ -22,8 +12,9 @@ export default function ApiDocsPage() {
         </a>{" "}
         (<code className="rounded bg-zinc-100 px-1 text-xs">public/openapi.yaml</code>).
       </p>
-      <div className="swagger-ui-override border-t border-zinc-200">
-        <SwaggerUI url="/openapi.yaml" docExpansion="list" defaultModelExpandDepth={3} />
+      <div className="border-t border-zinc-200">
+        <Script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js" strategy="afterInteractive" />
+        <redoc spec-url="/openapi.yaml" />
       </div>
     </div>
   );

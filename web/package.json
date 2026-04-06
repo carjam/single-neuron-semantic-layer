@@ -13,8 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "screenshot:enriched": "node scripts/screenshot-enriched.mjs",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate"
   },
@@ -25,8 +24,7 @@
     "@prisma/client": "^6.19.3",
     "next": "15.5.14",
     "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "swagger-ui-react": "^5.32.1"
+    "react-dom": "19.1.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -12,6 +12,8 @@ servers:
     description: Current host (e.g. http://localhost:3000)
 
 tags:
+  - name: Health
+    description: Runtime health checks for demo SQL routines.
   - name: HierarchyRules
     description: CRUD for hierarchy matching rules (rule_id + 3-level wildcard pattern + descriptor_01..10).
   - name: Rules
@@ -20,6 +22,25 @@ tags:
     description: Computed enriched rows (JSON/CSV).
 
 paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Check demo SQL function availability
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Missing required demo SQL routines
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
   /api/hierarchy-rules:
     get:
       tags: [HierarchyRules]
@@ -180,6 +201,21 @@ components:
             $ref: "#/components/schemas/ErrorBody"
 
   schemas:
+    HealthResponse:
+      type: object
+      required: [ok, checks]
+      properties:
+        ok:
+          type: boolean
+        checks:
+          type: object
+          required: [demoGetEnrichedRows, demoGetDenseScores]
+          properties:
+            demoGetEnrichedRows:
+              type: boolean
+            demoGetDenseScores:
+              type: boolean
+
     ErrorBody:
       type: object
       required: [error]

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -13,14 +13,14 @@ model Rule {
   decisionCode   String          @unique @map("decision_code")
   hierarchyRules HierarchyRule[]
 
-  @@map("rules")
+  @@map("demo_rules")
 }
 
 model Feature {
   id   Int    @id @map("feature_id")
   code String @unique @map("feature_code")
 
-  @@map("features")
+  @@map("demo_features")
 }
 
 /// Raw security rows: vendor (ald_*) + optional fund overrides.
@@ -34,7 +34,7 @@ model Observation {
   aldRatingBand           String  @map("ald_rating_band")
   fundRatingBandOverride  String? @map("fund_rating_band_override")
 
-  @@map("observations")
+  @@map("demo_observations")
 }
 
 /// Wildcard-capable hierarchy rules used for precedence enrichment.
@@ -56,5 +56,5 @@ model HierarchyRule {
   descriptor10     String? @map("descriptive_value_j")
   rule             Rule   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
-  @@map("hierarchy_enrichment_rules")
+  @@map("demo_hierarchy_enrichment_rules")
 }

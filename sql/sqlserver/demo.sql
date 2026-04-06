@@ -50,7 +50,7 @@ CREATE TABLE #observation_features (
 );
 
 CREATE TABLE #hierarchy_enrichment_rules (
-  hierarchy_rule_id   SMALLINT NOT NULL PRIMARY KEY,
+  hierarchy_rule_id   SMALLINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
   rule_id             SMALLINT NOT NULL,
   hierarchy_top       VARCHAR(16) NOT NULL,
   hierarchy_middle    VARCHAR(16) NOT NULL,
@@ -89,12 +89,12 @@ INSERT INTO #observations (
   (7, 'US00ALDINFI07', 'derivative',NULL, 'na',   NULL, 'core', NULL);
 
 INSERT INTO #hierarchy_enrichment_rules (
-  hierarchy_rule_id, rule_id, hierarchy_top, hierarchy_middle, hierarchy_bottom,
+  rule_id, hierarchy_top, hierarchy_middle, hierarchy_bottom,
   descriptive_value_a, descriptive_value_b, descriptive_value_c, descriptive_value_d
 ) VALUES
-  (1, 1, 'Debt', 'Govt',  'sovereign', 'rates_coverage', 'SOV-RATES-NA', 'T+0_CLOSE', 'BOOK_NA_GOVT'),
-  (2, 3, 'Debt', 'Corp',  'corporate', 'credit_coverage', 'CORP-CREDIT-EMEA', 'T+1_STD', 'BOOK_EMEA_CREDIT'),
-  (3, 2, 'Debt', '*',     '*',         'general_debt_coverage', 'CORP-CREDIT-NA', 'T+1_STD', 'BOOK_NA_CREDIT');
+  (1, 'Debt', 'Govt',  'sovereign', 'rates_coverage', 'SOV-RATES-NA', 'T+0_CLOSE', 'BOOK_NA_GOVT'),
+  (3, 'Debt', 'Corp',  'corporate', 'credit_coverage', 'CORP-CREDIT-EMEA', 'T+1_STD', 'BOOK_EMEA_CREDIT'),
+  (2, 'Debt', '*',     '*',         'general_debt_coverage', 'CORP-CREDIT-NA', 'T+1_STD', 'BOOK_NA_CREDIT');
 
 /* --- Kernelization: effective attributes (fund override wins if non-blank) --- */
 INSERT INTO #observation_features (observation_id, feature_id)

@@ -27,7 +27,7 @@ This repository is a **public, synthetic** companion to a production system I de
 ## What this repo is for
 
 - **Interview narrative:** Production context, constraints, performance, integrations, and lessons in `docs/case-study.md` (this README holds the **Aladdin-style FI demo**, **technical primer**, **worked example**, and quick starts).
-- **Technical proof of familiarity:** Run the SQL scripts end-to-end; every result set is labeled (`VARIABLE_SPACE_*`, `SUBJECT_SPACE_BY_ISIN`, `ENRICHED_OBSERVATION_ROW`, etc.).
+- **Technical proof of familiarity:** Run the SQL scripts end-to-end and inspect canonical outputs (`HIERARCHY_RULE_SPACE`, `ENRICHED_OBSERVATION_ROW`) plus the shared Postgres routines.
 - **Not a reproduction:** No proprietary schemas, data, or code from the employer; ISINs and attributes are **fabricated** for pedagogy.
 
 ## How the scoring engine works
@@ -71,7 +71,7 @@ $$
 
 and the outcome score is the maximum rule score among rows for that outcome.
 
-**Wide scores and `UNPIVOT`.** The demo still materializes wide slots (`a`,`b`,`c`) then reshapes to long rows for ranking, using `UNPIVOT` in SQL Server and `LATERAL VALUES` in PostgreSQL.
+**Wide scores and ranking.** Internally the enriched routine still forms outcome score slots (`a`,`b`,`c`) and applies argmax ranking deterministically (tie-break by `rule_id`).
 
 **Logic gate (hard max).** The discrete decision is
 
@@ -86,15 +86,16 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 ### Reproducibility
 
 - **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (seven **synthetic** FI rows with **`ald_*` + `fund_*_override`**, three workstreams, all `INSERT`s in-script).
+- **Canonical Postgres routines:** `demo_get_dense_scores()` and `demo_get_enriched_rows()` are created by `sql/postgres/demo.sql` and act as the shared scoring/enrichment source used by both SQL output sections and the web API.
 - **Command:** Run the **Quick start** sections below for PostgreSQL or SQL Server.
 - **Full Postgres run (no local `psql`):** With **Docker** running (e.g. Docker Desktop), from repo root run `.\scripts\run_postgres_demo_docker.ps1` (Windows) or `bash scripts/run_postgres_demo_docker.sh` (macOS/Linux). This starts an **ephemeral** `postgres:16-alpine` container, executes the demo, prints all result sets (including **`ENRICHED_OBSERVATION_ROW`**), then removes the container.
 - **Syntax check (no DB):** `pip install pglast` then `python scripts/verify_postgres_demo.py` — confirms the Postgres script is valid SQL (verified in development: **27** statements parse cleanly).
-- **Toy UI (Next.js):** `web/` — SQLite + Prisma, CRUD for **hierarchy rules** (`rule_id` + 3-level pattern + up to 10 descriptor columns), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example` and run `cd web && npm install && npx prisma migrate dev && npm run dev`.
+- **Toy UI (Next.js):** `web/` — Postgres + Prisma mapped to the same `demo_*` tables used by `sql/postgres/demo.sql`, with CRUD for **hierarchy rules** (`rule_id` + 3-level pattern + up to 10 descriptor columns), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example`, run the Postgres demo SQL once, then run `cd web && npm install && npm run db:generate && npm run dev`.
 
 **Enriched page (`/enriched`) — toy UI**
 
 ![Enriched observations: vendor vs effective fields, scores, winner, and descriptor columns](docs/images/enriched-output.png)
-- **Main result to check:** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + descriptor columns); optionally **`UNPIVOT_LONG`** and **`SUBJECT_SPACE_BY_ISIN`**.
+- **Main result to check:** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + descriptor columns).
 
 ### Limitations (negative space)
 
@@ -113,7 +114,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 | `scripts/verify_postgres_demo.py` | Optional: parse-check `sql/postgres/demo.sql` with **pglast** (no Postgres server) |
 | `scripts/run_postgres_demo_docker.ps1` | Optional: run the Postgres demo end-to-end in Docker (no local `psql`; Windows) |
 | `scripts/run_postgres_demo_docker.sh` | Same as above for bash (macOS/Linux) |
-| `web/` | Next.js toy UI: descriptor CRUD, enriched grid/CSV, **OpenAPI 3** (`public/openapi.yaml`) + **`/api-docs`** (Prisma/SQLite) |
+| `web/` | Next.js toy UI: descriptor CRUD, enriched grid/CSV, **OpenAPI 3** (`public/openapi.yaml`) + **`/api-docs`** (Prisma/PostgreSQL) |
 
 ## Demo data model (Aladdin-style vendor + fund overrides, synthetic)
 
@@ -178,7 +179,7 @@ Experts maintain hierarchy rules with wildcard support. The engine computes matr
 | CA00ALDINFI06 | na | emea | **emea** | corporate | core | 0.00 | 0.33 | 1.00 | **`ald_corp_credit_emea`** | 1.00 | credit_coverage | **CORP-CREDIT-EMEA** | **T+1_STD** | **BOOK_EMEA_CREDIT** |
 | US00ALDINFI07 | na | | na | derivative | core | 0.00 | 0.33 | 0.00 | `ald_corp_credit_na` | 0.33 | general_debt_coverage | CORP-CREDIT-NA | T+1_STD | BOOK_NA_CREDIT |
 
-**Readout:** Sovereign rows align to the exact sovereign hierarchy rule and get `descriptor_01 = rates_coverage`; corporate rows align to the exact corporate rule and get `credit_coverage`; derivative row 7 falls through to the wildcard fallback (`Debt` + `*` + `*`) and gets `general_debt_coverage`. Rows 3 and 6 show the Aladdin-vs-fund tension directly: vendor region is **NA**, fund override rebooks to **EMEA**, and decisioning follows **effective** values without mutating the vendor feed. Descriptor columns (up to 10) are attached from the matched hierarchy rule. Earlier result sets (`VARIABLE_SPACE_*`, `SUBJECT_SPACE_BY_ISIN`, `UNPIVOT_LONG`, …) show the linear-algebra layout.
+**Readout:** Sovereign rows align to the exact sovereign hierarchy rule and get `descriptor_01 = rates_coverage`; corporate rows align to the exact corporate rule and get `credit_coverage`; derivative row 7 falls through to the wildcard fallback (`Debt` + `*` + `*`) and gets `general_debt_coverage`. Rows 3 and 6 show the Aladdin-vs-fund tension directly: vendor region is **NA**, fund override rebooks to **EMEA**, and decisioning follows **effective** values without mutating the vendor feed. Descriptor columns (up to 10) are attached from the matched hierarchy rule.
 
 ## Quick start (PostgreSQL)
 
