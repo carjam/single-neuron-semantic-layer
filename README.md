@@ -1,8 +1,10 @@
 # Semantic layer + SQL expert system (portfolio)
 
-**Demo domain:** **Aladdin-style fixed income reference data**—each observation is a **synthetic security** (fabricated ISIN + issuer class, region, rating band). Workstream outcomes (`ald_sov_rates_na`, `ald_corp_credit_na`, `ald_corp_credit_emea`) stand in for analytics/ops routing. *Aladdin® is a registered trademark of BlackRock, Inc.; this project is **not** affiliated with BlackRock and uses **no** vendor or production data.*
+**Problem the demo illustrates:** Aladdin (and similar platforms) ship each security with a **vendor classification hierarchy**. **Fund managers** often need a **parallel, fund-specific taxonomy** so they can **aggregate and compare** names that vendor metadata would keep in separate buckets—without perpetual **manual munging** in spreadsheets. The original system gave them an **interactive semantic layer**: at whatever **hierarchy level** they chose (issuer type, region, rating bucket, …), they could record an **override value** that **takes precedence** over the vendor field when scoring, reporting, and routing.
 
-This repository is a **public, synthetic** companion to a production system I designed and built at a former employer. It documents architecture and tradeoffs and ships runnable SQL that implements the full pipeline—**kernelization**, **variable / subject space** views, **linear scores**, **`UNPIVOT` / `LATERAL VALUES`**, **argmax gating**, **`ENRICHED_OBSERVATION_ROW`**—on that FI-shaped sample. Formalism is in **How the scoring engine works**; sample I/O is in **Worked example** and **Demo data model**.
+**Demo domain:** **Synthetic** fixed income rows shaped like a security-master extract: **`ald_*`** columns mimic vendor reference data; nullable **`fund_*_override`** columns mimic PM-maintained semantics. **Effective** attributes are `COALESCE(non-blank override, ald_*)` before **kernelization**. Workstream outcomes (`ald_sov_rates_na`, …) stand in for analytics/ops routing. *Aladdin® is a registered trademark of BlackRock, Inc.; this project is **not** affiliated with BlackRock and uses **no** vendor or production data.*
+
+This repository is a **public, synthetic** companion to a production system I designed and built at a former employer. It documents architecture and tradeoffs and ships runnable SQL—**kernelization** on **effective** classifications, **variable / subject space**, **linear scores**, **`UNPIVOT` / `LATERAL VALUES`**, **argmax**, **`ENRICHED_OBSERVATION_ROW`**—including a **fund region override** on one US corporate that rebooks it from **NA** to **EMEA** for scoring. Formalism is in **How the scoring engine works**; sample I/O is in **Worked example** and **Demo data model**.
 
 **Original write-up (2019 context, published 2020):** [Building a Semantic Layer Using AI](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html)
 
@@ -16,11 +18,11 @@ This repository is a **public, synthetic** companion to a production system I de
 
 ### Stakeholder view (what each “run” decides)
 
-For every **security** in scope (one row in the reference-style feed), the engine **chooses exactly one subject option**—here, an **analytics / operations workstream**—from a finite catalog and **attaches that outcome’s descriptor fields** (routing queue, SLA bucket, book / cost-center tag). The **inputs** are qualitative **security-master-style** attributes (e.g. ISIN, issuer class, region, rating band) plus **expert-maintained** rule weights and enrichment rows. The **output** is **one enriched row per security**, same grain as the instrument feed, so risk, performance, and data teams can join results in SQL, Power BI, or downstream Aladdin-adjacent reporting without a separate scoring tier.
+For every **security** in scope, the engine **chooses exactly one subject option**—here, an **analytics / operations workstream**—and **attaches that outcome’s descriptor fields** (routing queue, SLA bucket, book tag). **Inputs** combine **vendor reference** (`ald_*`) with optional **fund overrides** (`fund_*_override`) maintained in the semantic layer UI; **scoring uses the effective hierarchy** after overrides. The **output** is **one enriched row per security** (vendor columns, optional overrides, and **computed effective** values used for scoring), so PMs can **aggregate on their taxonomy** while preserving lineage to Aladdin-classified data for audit and reconciliation.
 
 **Separated for clarity (facts vs policy vs math):**
 
-- **Data / structure (facts in the demo):** Kernelization maps FI reference text (issuer class, region, rating band) into a **fixed** list of binary features (`fi_sovereign`, `fi_corporate`, `region_*`, `rating_ig`, …). Matrix $K$ holds **non-negative** weights $k_{im}$ on those features for each workstream $i$; demo rows are **normalized** ($\sum_m k_{im}=1$) so per-outcome scores sit on a comparable scale.
+- **Data / structure (facts in the demo):** For each dimension, **effective value** = non-blank **fund override** if set, else **`ald_*` vendor value**. Kernelization maps those **effective** labels into a **fixed** binary feature dictionary (`fi_sovereign`, `fi_corporate`, `region_*`, `rating_ig`, …). Matrix $K$ holds **non-negative** weights $k_{im}$ for each workstream $i$; rows are **normalized** ($\sum_m k_{im}=1$). In production, users chose **which level** of the hierarchy to override and **what value** to apply; the SQL demo fixes three dimensions (issuer, region, rating band) for clarity.
 - **Business policy (declared, not learned):** The winning outcome is the one with the **highest score**; **ties** resolve by a **fixed ordering** on outcome id (`rule_id` in SQL). Production also used precedence “waterfall” rules—see `docs/case-study.md`.
 - **What is *not* decided here:** Continuous allocation, budgets, or solver-tuned decision vectors; there is **no** numerical optimization over a free $x\in\mathbb{R}^n$ in this pattern.
 
@@ -50,14 +52,14 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 
 ### Reproducibility
 
-- **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (three **synthetic** FI securities, three **Aladdin-style** workstreams, all `INSERT`s in-script).
+- **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (three **synthetic** FI rows with **`ald_*` + `fund_*_override`**, three workstreams, all `INSERT`s in-script).
 - **Command:** Run the **Quick start** sections below for PostgreSQL or SQL Server.
 - **Main result to check:** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + queue / SLA / book); optionally **`UNPIVOT_LONG`** and **`SUBJECT_SPACE_BY_ISIN`**.
 
 ### Limitations (negative space)
 
 - Scores $s_{ij}$ are **not** claimed to be calibrated probabilities; interpreting them across securities or portfolios requires an explicit business definition.
-- **Kernelization** and $K$ must stay in sync; errors are **governance / data-quality** failures, not detected by the score formula.
+- **Kernelization** and $K$ must stay in sync; **overrides** need **governance** (who can change vendor-effective classification, how conflicts with risk or compliance are reviewed)—errors are operational, not caught by the score formula alone.
 - This repo does **not** reproduce production **scale** mechanics (indexed TVFs, staging on read replicas, etc.); those are described in `docs/case-study.md`.
 
 ## Repository layout
@@ -69,33 +71,37 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 | `sql/sqlserver/demo.sql` | Same pipeline, T-SQL (closer to the original SQL Server post) |
 | `scripts/render_readme_preview.py` | Optional: `README.md` → `README.preview.html` for local viewing |
 
-## Demo data model (Aladdin-style, synthetic)
+## Demo data model (Aladdin-style vendor + fund overrides, synthetic)
 
 | Layer | Contents |
 |-------|-----------|
-| **Raw observation** | `isin`, `issuer_class` (sovereign / corporate), `region` (na / emea), `rating_band` (ig / core)—shaped like fields you might join from a **security master** or FI reference extract, not a live Aladdin export. |
-| **Kernelized features** | Sparse 0/1 atoms: `fi_sovereign`, `fi_corporate`, `region_emea`, `region_na`, `rating_ig`. |
-| **Outcomes ($K$ rows)** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA)—each with `routing_queue`, `sla_bucket`, `cost_center` enrichment. |
-| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: one row per ISIN with raw attributes, wide scores `a/b/c`, `winning_workstream`, and attached operational metadata. |
+| **Vendor reference (`ald_*`)** | Mimics platform hierarchy: `ald_issuer_class`, `ald_region`, `ald_rating_band` (values like sovereign / corporate, na / emea, ig / core). |
+| **Fund semantic layer (`fund_*_override`)** | Nullable per column; when **non-blank**, replaces the corresponding `ald_*` for **scoring only** (vendor columns remain in the enriched output for lineage). |
+| **Effective (implicit)** | `COALESCE(NULLIF(TRIM(override), ''), ald_value)` per dimension—this is what **kernelization** sees. |
+| **Kernelized features** | Sparse 0/1 atoms over **effective** labels: `fi_sovereign`, `fi_corporate`, `region_emea`, `region_na`, `rating_ig`. |
+| **Outcomes ($K$ rows)** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA)—each with `routing_queue`, `sla_bucket`, `cost_center`. |
+| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: `ald_*`, `fund_*_override`, **`effective_*`**, scores, `winning_workstream`, operational metadata. |
 
-## Worked example (Aladdin-style FI data)
+## Worked example (Aladdin-style FI data + fund overrides)
 
-The SQL loads **three synthetic fixed income instruments** as if they were rows from an **Aladdin-style security / reference extract**: you would normally see many more columns (identifiers, static terms, analytics flags); here we keep only the qualitative fields that feed **kernelization** and scoring. **ISINs are fabricated** (`…ALDIN…` pattern)—not live instruments or vendor data. *Aladdin® is a registered trademark of BlackRock, Inc.; this repo is independent and for illustration only.*
+The SQL loads **three synthetic** fixed income rows: each has **vendor (`ald_*`)** reference attributes and optional **`fund_*_override`** values maintained by the fund (semantic layer). **Kernelization** uses **effective** = override when non-blank, else vendor. **ISINs are fabricated** (`…ALDIN…`). *Aladdin® is a registered trademark of BlackRock, Inc.; this repo is independent and for illustration only.*
 
-Match the **`INSERT` into `demo_observations`** and the final **`ENRICHED_OBSERVATION_ROW`** grid to the tables below.
+Match the **`INSERT` into `demo_observations`** and **`ENRICHED_OBSERVATION_ROW`** to the tables below.
 
-### Inputs: Aladdin-style reference slice (observations before enrichment)
+### Inputs: vendor hierarchy vs fund overrides
 
-How the same three instruments might appear on an institutional **FI reference / security-master** layout. The runnable script persists only **`isin`**, **`issuer_class`**, **`region`**, and **`rating_band`** in `demo_observations` (those four drive kernelization and scores). Columns *illustrative security description*, *asset type (FI)*, and *ccy* in the table below are **README-only**—they typify fields that often sit beside the scored attributes on an Aladdin-style extract.
+Illustrative layout: **Aladdin-classified** columns plus **fund** columns (same names as `demo_observations`). *Description / asset type / ccy* are **README-only** context.
 
-| isin (primary id) | illustrative security description | asset type (FI) | **issuer_class** | **region** (book / analytics) | ccy | **rating_band** |
-|-------------------|-----------------------------------|-----------------|------------------|-------------------------------|-----|-----------------|
-| US00ALDINFI01 | US Treasury note (synthetic) | Government bond | **sovereign** | **na** | USD | **ig** |
-| DE00ALDINFI02 | EUR IG corporate note (synthetic) | Corporate bond | **corporate** | **emea** | EUR | **core** |
-| US00ALDINFI03 | US IG corporate bond (synthetic) | Corporate bond | **corporate** | **na** | USD | **core** |
+| isin | illustrative name | asset type | **ald_issuer_class** | **fund_issuer_class_override** | **ald_region** | **fund_region_override** | **ald_rating_band** | **fund_rating_band_override** |
+|------|-------------------|------------|----------------------|--------------------------------|----------------|---------------------------|---------------------|-------------------------------|
+| US00ALDINFI01 | US Treasury note (synthetic) | Govt | sovereign | *(none)* | na | *(none)* | ig | *(none)* |
+| DE00ALDINFI02 | EUR corporate note (synthetic) | Corp | corporate | *(none)* | emea | *(none)* | core | *(none)* |
+| US00ALDINFI03 | US corporate bond (synthetic) | Corp | corporate | *(none)* | na | **`emea`** | core | *(none)* |
 
-- **`issuer_class`**, **`region`**, **`rating_band`**: map into binary features (`fi_sovereign` / `fi_corporate`, `region_na` / `region_emea`, `rating_ig` when band = `ig`).
-- **`rating_band` = `core`**: means “not flagged as IG in this toy feed” (no `rating_ig` bit); it is **not** a vendor enum from Aladdin.
+**Row 3 story:** Aladdin still books the name in **North America** (`ald_region = na`), but the fund sets **`fund_region_override = emea`** so—**for internal aggregation and workstream routing**—it is treated like an **EMEA corporate** (e.g. to align with a sleeve or mandate view) **without editing the vendor feed**.
+
+- **Effective for scoring:** row 3 behaves as **corporate + emea + core** → same feature vector as row 2 → **corporate credit (EMEA)** wins.
+- **`rating_band` = `core`:** no `rating_ig` bit in this toy; not a literal Aladdin enum.
 
 ### Inputs: subject options (workstreams + semantic “white columns”)
 
@@ -109,17 +115,17 @@ Each row is a candidate **downstream workstream**—similar to attaching an **op
 
 Experts also maintain **$K$**: non-negative weights on `fi_sovereign`, `fi_corporate`, `region_*`, `rating_ig` (row-normalized in the script). The engine **kernelizes** each security row, computes scores, **UNPIVOT**-style reshapes wide scores (`a`/`b`/`c`), then applies **argmax** (tie-break on `rule_id`).
 
-### Output: enriched Aladdin-style rows (one line per ISIN)
+### Output: enriched rows (vendor + overrides + effective + winner)
 
-**`ENRICHED_OBSERVATION_ROW`**: raw scored attributes (as in SQL), plus the **winning workstream** and its operational metadata. *Illustrative description* is for the README only; the query output repeats `isin`, `issuer_class`, `region`, `rating_band`.
+**`ENRICHED_OBSERVATION_ROW`** mirrors the SQL: full **`ald_*` / `fund_*`**, computed **`effective_*`** (what was kernelized), scores, and workstream metadata. *Illustrative name* omitted from the query.
 
-| isin | illustrative description | issuer_class | region | rating_band | score_a | score_b | score_c | winning_workstream | winning_score | routing_queue | sla_bucket | cost_center |
-|------|--------------------------|--------------|--------|-------------|---------|---------|---------|-------------------|---------------|---------------|------------|-------------|
-| US00ALDINFI01 | US Treasury note (synthetic) | sovereign | na | ig | 1.00 | 0.60 | 0.00 | `ald_sov_rates_na` | 1.00 | SOV-RATES-NA | T+0_CLOSE | BOOK_NA_GOVT |
-| DE00ALDINFI02 | EUR IG corporate note (synthetic) | corporate | emea | core | 0.00 | 0.40 | 1.00 | `ald_corp_credit_emea` | 1.00 | CORP-CREDIT-EMEA | T+1_STD | BOOK_EMEA_CREDIT |
-| US00ALDINFI03 | US IG corporate bond (synthetic) | corporate | na | core | 0.00 | 1.00 | 0.40 | `ald_corp_credit_na` | 1.00 | CORP-CREDIT-NA | T+1_STD | BOOK_NA_CREDIT |
+| isin | ald_region | fund_region_override | effective_region | effective_issuer | effective_rating | score_a | score_b | score_c | winning_workstream | winning_score | routing_queue |
+|------|------------|----------------------|------------------|------------------|------------------|---------|---------|---------|---------------------|---------------|---------------|
+| US00ALDINFI01 | na | | na | sovereign | ig | 1.00 | 0.60 | 0.00 | `ald_sov_rates_na` | 1.00 | SOV-RATES-NA |
+| DE00ALDINFI02 | emea | | emea | corporate | core | 0.00 | 0.40 | 1.00 | `ald_corp_credit_emea` | 1.00 | CORP-CREDIT-EMEA |
+| US00ALDINFI03 | na | emea | **emea** | corporate | core | 0.00 | 0.40 | 1.00 | **`ald_corp_credit_emea`** | 1.00 | **CORP-CREDIT-EMEA** |
 
-**Readout:** US govt **IG** **NA** → **sovereign rates (NA)** queue; EMEA **corporate** → **corporate credit (EMEA)**; US **corporate** **NA** → **corporate credit (NA)**. Earlier result sets in the script (`VARIABLE_SPACE_*`, `SUBJECT_SPACE_BY_ISIN`, `UNPIVOT_LONG`, …) show the linear-algebra layout; this grid is the **consumer-shaped** join you would feed to reporting or downstream risk stacks.
+**Readout:** Treasury **NA** **IG** → sovereign-rates NA. **DE corporate EMEA** → corporate credit EMEA. **US corporate** with **fund region override to EMEA** → **same queue as DE** (aggregation path aligned), even though Aladdin still shows **NA** geography—**no spreadsheet munging** required to compare the two names on the fund’s basis. Full output also includes `sla_bucket`, `cost_center`, and the remaining `ald_*` / `fund_*` columns. Earlier result sets (`VARIABLE_SPACE_*`, `SUBJECT_SPACE_BY_ISIN`, `UNPIVOT_LONG`, …) show the linear-algebra layout.
 
 ## Quick start (PostgreSQL)
 
@@ -163,7 +169,7 @@ git commit --amend --reset-author --no-edit
 
 ## Tags
 
-Semantic layer, expert / rules engine, fixed income reference data, decision automation, linear scoring, SQL (PostgreSQL, T-SQL), data engineering, in-database enrichment, portfolio / interview artifact.
+Semantic layer, classification override, vendor vs fund taxonomy, fixed income reference data, expert / rules engine, decision automation, linear scoring, SQL (PostgreSQL, T-SQL), data engineering, in-database enrichment, portfolio / interview artifact.
 
 ## License
 

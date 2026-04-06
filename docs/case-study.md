@@ -6,7 +6,7 @@ This document is the **production and organizational** narrative (problem, const
 
 Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregate upstream feeds. Much of the “expert knowledge” lived in spreadsheets or in analysts’ heads. Reporting still depended heavily on a **legacy database-centric** system that was trusted and slow to replace. The goal was to give users a **maintainable semantic layer** (dimensions and labels they owned) while **merging that metadata with daily observations inside the database** so existing reporting pipelines could consume enriched rows without a big-bang rewrite.
 
-**This repository’s demo** re-skins **observations** as **fixed income securities** in an **Aladdin-style reference shape** (ISIN, issuer class, region, rating band) and **outcomes** as **analytics workstreams** (e.g. sovereign rates vs corporate credit by region). All ISINs and attributes are **synthetic**; *Aladdin®* is a trademark of BlackRock, Inc., and this project is independent.
+**This repository’s demo** re-skins **observations** as **fixed income securities** with **two layers of classification**: **`ald_*`** fields mimic the **vendor (Aladdin-style) hierarchy**, and nullable **`fund_*_override`** fields mimic an **interactive semantic layer** where PMs **override vendor labels at chosen levels** (issuer, region, rating band in the script) so funds can **aggregate and compare** names on **their** taxonomy **without** perpetual analyst spreadsheet work—while **preserving** vendor values for lineage. **Outcomes** are **analytics workstreams** (e.g. sovereign rates vs corporate credit by region). All ISINs and attributes are **synthetic**; *Aladdin®* is a trademark of BlackRock, Inc., and this project is independent.
 
 ## Problem
 
@@ -20,9 +20,9 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
    Experts create and maintain dimensions and descriptor values through a web UI; data is stored relationally and exposed via APIs (and optionally Excel/Power Query as a thin client).
 
 2. **In-database scoring and enrichment**  
-   User-maintained **rules** and **descriptor columns** (the “white” semantic fields) were combined with daily **observations** inside SQL: qualitative fields were **kernelized** to a fixed binary feature dictionary, **expert weights** formed rows of a matrix $K$, scores were **linear** in those features, outcomes were chosen with **argmax** (plus **waterfall / tie precedence** in production), and results were reshaped (**wide scores → `UNPIVOT`**) so consumers received **one enriched row per observation** (in the portfolio repo: **per security** on the FI reference feed).  
+   User-maintained **rules** and **descriptor columns** (the “white” semantic fields) were combined with daily **observations** inside SQL. Where platforms imposed a **fixed vendor hierarchy** (e.g. Aladdin-classified sectors and regions), funds needed **optional overrides** at **granularity of their choice**—stored alongside the feed, **not** by mutating vendor master data—so **effective** attributes used for scoring became **fund value if set, else vendor value**. Those **effective** labels were **kernelized** to a fixed binary feature dictionary; **expert weights** formed rows of $K$; **argmax** (plus **waterfall / tie precedence** in production) chose an outcome; **wide scores → `UNPIVOT`** produced **one enriched row per observation** (in the portfolio repo: **per security**, with **`ald_*`**, **`fund_*`**, and **effective** columns exposed).  
 
-   **Formal notation** ($s_{ij}=\langle k_i,d_j\rangle$, problem class vs LP/QP, gate semantics), **reproducibility**, and a **worked numeric example** with **Aladdin-style** sample data live in [`README.md`](../README.md) so this file stays focused on context and operations.
+   **Formal notation**, **reproducibility**, and a **worked example** (including a **region override** that rebooks a US corporate into the EMEA credit path) live in [`README.md`](../README.md).
 
 ## Constraints and non-goals
 
@@ -45,6 +45,7 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 ## Lessons (still relevant)
 
 - **Separating** “small, expert-maintained rule set” from “huge observation stream” drives the **kernelization + matrix-style** join pattern.
+- **Vendor classification vs fund overrides:** exposing both **`ald_*`** and **`effective`** (post-override) in outputs supports **PM aggregation** and **audit** against the **platform hierarchy** without duplicate manual extracts.
 - **Contract-first access** (required parameters, typed TVPs) is a lever for **performance and safety** on shared fact tables.
 - The same pipeline pattern can support other **post-score actions** (not only max/waterfall), e.g., diagnostics or drift-style checks, with different output layers.
 - Framing scores as a **linear layer** and the decision as **argmax** communicates quickly to ML-literate stakeholders—while keeping clear that **$K$ is curated**, not gradient-learned.

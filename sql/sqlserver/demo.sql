@@ -1,11 +1,11 @@
 /*
   Synthetic demo: kernelization + variable space / subject space + rule scoring.
-  T-SQL; temp tables. Observations = fixed income securities (Aladdin-*style* FI
-  attributes: ISIN, issuer class, region, rating band). ISINs are **fabricated**.
+  T-SQL; temp tables.   Observations = FI securities: **ald_*** vendor reference + optional **fund_***_override
+  per hierarchy level; effective = COALESCE(NULLIF(TRIM(override),''), ald_*). ISINs fabricated.
 
   Variable space: each observation is a vector in R^M (rows of D).
   Subject space: each feature is a vector over observations (transpose of D).
-  Kernelization: qualitative issuer_class / region / rating_band -> sparse 0/1.
+  Kernelization: effective issuer / region / rating_band -> sparse 0/1.
 
   NN analogy: K is a linear map R^M -> R^N (logit-like scores, no activation);
   argmax over scores is a hard max / winner-take-all gate (plus tie-break).
@@ -49,10 +49,13 @@ CREATE TABLE #rule_weights (
 
 CREATE TABLE #observations (
   observation_id INT NOT NULL PRIMARY KEY,
-  isin           VARCHAR(16) NOT NULL,
-  issuer_class   VARCHAR(16) NOT NULL,
-  region         VARCHAR(16) NOT NULL,
-  rating_band    VARCHAR(16) NOT NULL
+  isin                         VARCHAR(16) NOT NULL,
+  ald_issuer_class             VARCHAR(16) NOT NULL,
+  fund_issuer_class_override   VARCHAR(16) NULL,
+  ald_region                   VARCHAR(16) NOT NULL,
+  fund_region_override         VARCHAR(16) NULL,
+  ald_rating_band              VARCHAR(16) NOT NULL,
+  fund_rating_band_override    VARCHAR(16) NULL
 );
 
 CREATE TABLE #observation_features (
@@ -80,22 +83,25 @@ INSERT INTO #rule_weights (rule_id, feature_id, weight) VALUES
   (2, 2, 0.40), (2, 4, 0.60),
   (3, 2, 0.40), (3, 3, 0.60);
 
-INSERT INTO #observations (observation_id, isin, issuer_class, region, rating_band) VALUES
-  (1, 'US00ALDINFI01', 'sovereign', 'na',   'ig'),
-  (2, 'DE00ALDINFI02', 'corporate', 'emea', 'core'),
-  (3, 'US00ALDINFI03', 'corporate', 'na',   'core');
+INSERT INTO #observations (
+  observation_id, isin, ald_issuer_class, fund_issuer_class_override,
+  ald_region, fund_region_override, ald_rating_band, fund_rating_band_override
+) VALUES
+  (1, 'US00ALDINFI01', 'sovereign', NULL, 'na',   NULL, 'ig',   NULL),
+  (2, 'DE00ALDINFI02', 'corporate', NULL, 'emea', NULL, 'core', NULL),
+  (3, 'US00ALDINFI03', 'corporate', NULL, 'na',   'emea', 'core', NULL);
 
-/* --- Kernelization: qualitative -> binary coordinates in R^M --- */
+/* --- Kernelization: effective attributes (fund override wins if non-blank) --- */
 INSERT INTO #observation_features (observation_id, feature_id)
 SELECT o.observation_id, v.feature_id
 FROM #observations o
 CROSS APPLY (
   VALUES
-    (CASE WHEN o.issuer_class = 'sovereign' THEN 1 END),
-    (CASE WHEN o.issuer_class = 'corporate' THEN 2 END),
-    (CASE WHEN o.region = 'emea' THEN 3 END),
-    (CASE WHEN o.region = 'na'   THEN 4 END),
-    (CASE WHEN o.rating_band = 'ig' THEN 5 END)
+    (CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(o.fund_issuer_class_override)), ''), o.ald_issuer_class) = 'sovereign' THEN 1 END),
+    (CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(o.fund_issuer_class_override)), ''), o.ald_issuer_class) = 'corporate' THEN 2 END),
+    (CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(o.fund_region_override)), ''), o.ald_region) = 'emea' THEN 3 END),
+    (CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(o.fund_region_override)), ''), o.ald_region) = 'na'   THEN 4 END),
+    (CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(o.fund_rating_band_override)), ''), o.ald_rating_band) = 'ig' THEN 5 END)
 ) AS v(feature_id)
 WHERE v.feature_id IS NOT NULL;
 
@@ -293,9 +299,15 @@ SELECT
   'ENRICHED_OBSERVATION_ROW' AS section,
   o.observation_id,
   o.isin,
-  o.issuer_class,
-  o.region,
-  o.rating_band,
+  o.ald_issuer_class,
+  o.fund_issuer_class_override,
+  o.ald_region,
+  o.fund_region_override,
+  o.ald_rating_band,
+  o.fund_rating_band_override,
+  COALESCE(NULLIF(LTRIM(RTRIM(o.fund_issuer_class_override)), ''), o.ald_issuer_class) AS effective_issuer_class,
+  COALESCE(NULLIF(LTRIM(RTRIM(o.fund_region_override)), ''), o.ald_region) AS effective_region,
+  COALESCE(NULLIF(LTRIM(RTRIM(o.fund_rating_band_override)), ''), o.ald_rating_band) AS effective_rating_band,
   w.a AS score_a,
   w.b AS score_b,
   w.c AS score_c,

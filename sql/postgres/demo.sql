@@ -1,8 +1,8 @@
 -- =============================================================================
 -- Synthetic demo: kernelization + variable space / subject space + rule scoring
--- Domain: fixed income *securities* as they might appear in a security-master /
--- analytics feed (e.g. Aladdin-style FI attributes). All ISINs and attributes
--- are **fabricated** for illustration; not real positions or vendor data.
+-- Domain: fixed income *securities* with **ald_*** vendor-style reference fields
+-- and **fund_***_override columns (fund semantic layer). Effective = COALESCE
+-- trimmed non-empty override, else ald. All ISINs fabricated; not vendor data.
 --
 -- Variable space (standard multivariate view):
 --   Each *observation* is a vector in R^M: one coordinate per atomic feature
@@ -14,9 +14,11 @@
 --   which dimensions together.
 --
 -- Kernelization:
---   Upstream delivers qualitative labels (issuer class, region, rating band).
---   We map them into a fixed sparse 0/1 representation in R^M so linear weights
---   (rows of K) apply without string matching on the hot path.
+--   Each row carries **vendor (Aladdin-style) reference attributes** plus optional
+--   **fund semantic-layer overrides** per hierarchy level. Effective value for
+--   scoring is COALESCE(NULLIF(TRIM(fund_override),''), ald_value). That lets PMs
+--   rebook geography, issuer bucket, or rating band for internal aggregation without
+--   mutating the vendor feed.
 --
 -- NN analogy (interpretation, not training):
 --   After kernelization, each observation is a feature vector d in R^M.
@@ -65,13 +67,16 @@ CREATE TABLE demo_rule_weights (
   PRIMARY KEY (rule_id, feature_id)
 );
 
--- Raw observations: qualitative FI fields as from a security / reference feed.
+-- Raw observations: Aladdin-style reference columns + nullable fund overrides (UI / semantic layer).
 CREATE TABLE demo_observations (
   observation_id BIGSERIAL PRIMARY KEY,
-  isin             TEXT NOT NULL,
-  issuer_class     TEXT NOT NULL,
-  region           TEXT NOT NULL,
-  rating_band      TEXT NOT NULL
+  isin                        TEXT NOT NULL,
+  ald_issuer_class            TEXT NOT NULL,
+  fund_issuer_class_override  TEXT,
+  ald_region                  TEXT NOT NULL,
+  fund_region_override        TEXT,
+  ald_rating_band             TEXT NOT NULL,
+  fund_rating_band_override   TEXT
 );
 
 -- D (sparse): kernelized 0/1 coordinates in variable space.
@@ -103,11 +108,16 @@ INSERT INTO demo_rule_weights (rule_id, feature_id, weight) VALUES
   (2, 2, 0.40), (2, 4, 0.60),
   (3, 2, 0.40), (3, 3, 0.60);
 
--- Synthetic FI securities (ISIN pattern only; not real instruments).
-INSERT INTO demo_observations (isin, issuer_class, region, rating_band) VALUES
-  ('US00ALDINFI01', 'sovereign', 'na',   'ig'),
-  ('DE00ALDINFI02', 'corporate', 'emea', 'core'),
-  ('US00ALDINFI03', 'corporate', 'na',   'core');
+-- Synthetic FI securities. Row 3: Aladdin books US corporate in **NA**; fund overrides
+-- **region** to **emea** so it aggregates with EMEA credit cohorts (same scores as DE row).
+INSERT INTO demo_observations (
+  isin, ald_issuer_class, fund_issuer_class_override,
+  ald_region, fund_region_override,
+  ald_rating_band, fund_rating_band_override
+) VALUES
+  ('US00ALDINFI01', 'sovereign', NULL, 'na',   NULL, 'ig',   NULL),
+  ('DE00ALDINFI02', 'corporate', NULL, 'emea', NULL, 'core', NULL),
+  ('US00ALDINFI03', 'corporate', NULL, 'na',   'emea', 'core', NULL);
 
 -- ---------------------------------------------------------------------------
 -- Kernelization: qualitative -> fixed binary features in R^M
@@ -118,11 +128,11 @@ SELECT o.observation_id, k.feature_id
 FROM demo_observations o
 CROSS JOIN LATERAL (
   VALUES
-    (CASE WHEN o.issuer_class = 'sovereign' THEN 1 END),
-    (CASE WHEN o.issuer_class = 'corporate' THEN 2 END),
-    (CASE WHEN o.region = 'emea' THEN 3 END),
-    (CASE WHEN o.region = 'na'   THEN 4 END),
-    (CASE WHEN o.rating_band = 'ig' THEN 5 END)
+    (CASE WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'sovereign' THEN 1 END),
+    (CASE WHEN COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) = 'corporate' THEN 2 END),
+    (CASE WHEN COALESCE(NULLIF(BTRIM(o.fund_region_override), ''), o.ald_region) = 'emea' THEN 3 END),
+    (CASE WHEN COALESCE(NULLIF(BTRIM(o.fund_region_override), ''), o.ald_region) = 'na'   THEN 4 END),
+    (CASE WHEN COALESCE(NULLIF(BTRIM(o.fund_rating_band_override), ''), o.ald_rating_band) = 'ig' THEN 5 END)
 ) AS v(feature_id)
 WHERE v.feature_id IS NOT NULL;
 
@@ -343,9 +353,15 @@ SELECT
   'ENRICHED_OBSERVATION_ROW' AS section,
   o.observation_id,
   o.isin,
-  o.issuer_class,
-  o.region,
-  o.rating_band,
+  o.ald_issuer_class,
+  o.fund_issuer_class_override,
+  o.ald_region,
+  o.fund_region_override,
+  o.ald_rating_band,
+  o.fund_rating_band_override,
+  COALESCE(NULLIF(BTRIM(o.fund_issuer_class_override), ''), o.ald_issuer_class) AS effective_issuer_class,
+  COALESCE(NULLIF(BTRIM(o.fund_region_override), ''), o.ald_region) AS effective_region,
+  COALESCE(NULLIF(BTRIM(o.fund_rating_band_override), ''), o.ald_rating_band) AS effective_rating_band,
   w.a AS score_a,
   w.b AS score_b,
   w.c AS score_c,
