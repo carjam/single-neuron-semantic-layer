@@ -16,7 +16,7 @@
 
 **What the production system provided:** An **interactive semantic layer**. For **each security**, and for **whatever hierarchy level they chose** (issuer, region, rating bucket, …), users could enter an **optional override value**. When present, that value **replaces the vendor field for scoring, enrichment, and workstream assignment**; when absent, the **vendor value is used unchanged**. The **vendor attributes are always retained** on the row (`ald_*`) alongside overrides (`fund_*_override`) and the **computed effective** values actually fed into the engine—so PMs get **fund-native roll-ups** while **preserving lineage** back to the Aladdin-classified source for audit, compliance, and reconciliation.
 
-**What this repository demonstrates:** The same idea in **minimal SQL**: synthetic `ald_*` + nullable `fund_*_override` → **effective** → kernelization → matrix-constraint scores → argmax → **`ENRICHED_OBSERVATION_ROW`**. The worked example includes a **fund region override** that rebooks a US corporate from **NA** to **EMEA** for internal aggregation **without** editing the vendor feed.
+**What this repository demonstrates:** The same idea in **minimal SQL**: synthetic `ald_*` + nullable `fund_*_override` → **effective** → kernelization → sparse matrix-style scores → argmax → **`ENRICHED_OBSERVATION_ROW`**. The worked example includes a **fund region override** that rebooks a US corporate from **NA** to **EMEA** for internal aggregation **without** editing the vendor feed.
 
 *Aladdin® is a registered trademark of BlackRock, Inc. This project is **not** affiliated with BlackRock, uses **no** vendor or production data, and all ISINs are **fabricated**.*
 
@@ -42,12 +42,7 @@ The UI can render many columns for diagnostics, but the core intuition is straig
 
 **Qualitative → numeric.** Vendor and fund-side fields are **categorical** (issuer class, region, rating band, …). **Kernelization** maps each row’s **effective** labels into a **sparse binary vector** $d_j \in \{0,1\}^M$ over a **fixed dictionary** of atomic features (e.g. `fi_corporate`, `region_emea`). That step is the bridge from **qualitative data** to something algebra can consume—without pretending the categories were already real numbers.
 
-**Matrix-style scoring under constraints.** Each observation is mapped to a normalized hierarchy (levels 1..7; levels 1..3 are commonly used), kernelized into sparse axis-value features, then scored against kernelized hierarchy rules via sparse dot-product. Compatibility constraints still apply (`*` means "axis not specified"; non-wildcard mismatches are rejected). The resulting score is:
-- top contributes `1` only on exact match
-- middle contributes `1` only if non-wildcard and exact (`*` contributes `0`)
-- bottom contributes `1` only if non-wildcard and exact (`*` contributes `0`)
-- total divided by `3`
-Scores for each decision are the best matching hierarchy row for that decision.
+**Matrix-style scoring under constraints.** Each observation is mapped to a normalized hierarchy (levels 1..7; levels 1..3 are commonly used), kernelized into sparse axis-value features, then scored against kernelized hierarchy rules via sparse dot-product. Compatibility constraints still apply (`*` means "axis not specified"; non-wildcard mismatches are rejected). Score is normalized by the number of non-wildcard rule axes (minimum denominator `3` for backward compatibility), and each decision keeps the best matching hierarchy rule score.
 
 **Logic gating.** The discrete choice $\arg\max_i s_{ij}$ (with a fixed tie-break) is a **hard winner-take-all gate**: one outcome “on,” the rest “off.” There is **no softmax**, **no depth**, and **no training loop** in this artifact.
 
@@ -74,7 +69,7 @@ For every **security** in scope, the engine **chooses exactly one subject option
 $$
 \text{score}_{rj} =
 \begin{cases}
-\dfrac{d_j^\top k_r}{3}, & \text{if all non-wildcard axes in } r \text{ match } j\\
+\dfrac{d_j^\top k_r}{\max(\|k_r\|_0, 3)}, & \text{if all non-wildcard axes in } r \text{ match } j\\
 0, & \text{otherwise}
 \end{cases}
 $$
@@ -111,7 +106,7 @@ This approach is practical for real-time enrichment on large datasets because ru
 - **Command:** Run the PostgreSQL quick start section below.
 - **Full Postgres run (no local `psql`):** With **Docker** running (e.g. Docker Desktop), from repo root run `.\scripts\run_postgres_demo_docker.ps1` (Windows) or `bash scripts/run_postgres_demo_docker.sh` (macOS/Linux). This starts an **ephemeral** `postgres:16-alpine` container, executes the demo, prints all result sets (including **`ENRICHED_OBSERVATION_ROW`**), then removes the container.
 - **Syntax check (no DB):** `pip install pglast` then `python scripts/verify_postgres_demo.py` — confirms the Postgres script is valid SQL (verified in development: **27** statements parse cleanly).
-- **Toy UI (Next.js):** `web/` — Postgres + Prisma mapped to the same `demo_*` tables used by `sql/postgres/demo.sql`, with CRUD for **hierarchy rules** (`rule_id` + 3-level pattern + up to 10 descriptor columns), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example`, run the Postgres demo SQL once, then run `cd web && npm install && npm run db:generate && npm run dev`.
+- **Toy UI (Next.js):** `web/` — Postgres + Prisma mapped to the same `demo_*` tables used by `sql/postgres/demo.sql`, with CRUD for **hierarchy rules** (`rule_id` + variable-depth pattern levels 1..7 + up to 10 descriptor columns), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example`, run the Postgres demo SQL once, then run `cd web && npm install && npm run db:generate && npm run dev`.
 
 - **Main result to check (`/enriched`):** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + descriptor columns).
 
@@ -143,7 +138,7 @@ This approach is practical for real-time enrichment on large datasets because ru
 | **Kernelized features** | Sparse 0/1 atoms over **effective** labels: `fi_sovereign`, `fi_corporate`, `region_emea`, `region_na`, `rating_ig`. |
 | **Hierarchy enrichment rules** | User-maintained match rows with `*` wildcard support across `hierarchy_top`, `hierarchy_middle`, `hierarchy_bottom`, `hierarchy_level_04..07`; sparse kernel dot-product score is computed per rule and max-selected per outcome. |
 | **Decision outcomes** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA). |
-| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: `ald_*`, `fund_*_override`, **`effective_*`**, matrix-constraint scores, `winning_workstream`, wildcard-resolved semantic descriptors. |
+| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: `ald_*`, `fund_*_override`, **`effective_*`**, sparse matrix-style scores, `winning_workstream`, wildcard-resolved semantic descriptors. |
 
 ## Worked example (Aladdin-style FI data + fund overrides)
 
