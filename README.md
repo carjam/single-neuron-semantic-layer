@@ -30,6 +30,12 @@ This repository is a **public, synthetic** companion to a production system I de
 - **Technical proof of familiarity:** Run the SQL scripts end-to-end and inspect canonical outputs (`HIERARCHY_RULE_SPACE`, `ENRICHED_OBSERVATION_ROW`) plus the shared Postgres routines.
 - **Not a reproduction:** No proprietary schemas, data, or code from the employer; ISINs and attributes are **fabricated** for pedagogy.
 
+## Intuitive result view
+
+The UI can render many columns for diagnostics, but the core intuition is straightforward: left-side observation context, right-side scores and attached descriptors after winner selection.
+
+![Simplified enriched output: key observation context plus winning enrichment fields](docs/images/enriched-output-simple.png)
+
 ## How the scoring engine works
 
 ### Kernelization, matrix-constraint scoring, and gating
@@ -92,10 +98,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 - **Syntax check (no DB):** `pip install pglast` then `python scripts/verify_postgres_demo.py` — confirms the Postgres script is valid SQL (verified in development: **27** statements parse cleanly).
 - **Toy UI (Next.js):** `web/` — Postgres + Prisma mapped to the same `demo_*` tables used by `sql/postgres/demo.sql`, with CRUD for **hierarchy rules** (`rule_id` + 3-level pattern + up to 10 descriptor columns), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example`, run the Postgres demo SQL once, then run `cd web && npm install && npm run db:generate && npm run dev`.
 
-**Enriched page (`/enriched`) — toy UI**
-
-![Enriched observations: vendor vs effective fields, scores, winner, and descriptor columns](docs/images/enriched-output.png)
-- **Main result to check:** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + descriptor columns).
+- **Main result to check (`/enriched`):** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + descriptor columns).
 
 ### Limitations (negative space)
 
@@ -108,7 +111,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 | Path | Purpose |
 |------|--------|
 | `docs/case-study.md` | Production / org narrative; ties original system to this repo’s **Aladdin-style FI** portfolio demo |
-| `docs/images/enriched-output.png` | Screenshot of the **Enriched output** screen in the Next.js toy UI (`/enriched`) |
+| `docs/images/enriched-output-simple.png` | Simplified screenshot of the **Enriched output** screen in the Next.js toy UI (`/enriched`) |
 | `sql/postgres/demo.sql` | End-to-end **Aladdin-style FI** reference demo (PostgreSQL; synthetic ISINs) |
 | `scripts/verify_postgres_demo.py` | Optional: parse-check `sql/postgres/demo.sql` with **pglast** (no Postgres server) |
 | `scripts/run_postgres_demo_docker.ps1` | Optional: run the Postgres demo end-to-end in Docker (no local `psql`; Windows) |
