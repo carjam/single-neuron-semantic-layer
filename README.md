@@ -1,30 +1,32 @@
 # Semantic layer + SQL expert system (portfolio)
 
-This repository is a **public, synthetic** companion to a production system I designed and built at a former employer. It documents architecture and tradeoffs and ships a **small runnable SQL demo** whose observations are **fixed income securities** cast in an **Aladdin-style** reference-data shape (ISIN, issuer class, region, rating band)—**not** real BlackRock or vendor data. The pipeline—**kernelization**, **variable / subject space** views, **linear scores**, **`UNPIVOT` / `LATERAL VALUES`**, **argmax gating**, **`ENRICHED_OBSERVATION_ROW`**—is spelled out in **How the scoring engine works** (linear algebra, logic gate, limitations, reproduction).
+**Demo domain:** **Aladdin-style fixed income reference data**—each observation is a **synthetic security** (fabricated ISIN + issuer class, region, rating band). Workstream outcomes (`ald_sov_rates_na`, `ald_corp_credit_na`, `ald_corp_credit_emea`) stand in for analytics/ops routing. *Aladdin® is a registered trademark of BlackRock, Inc.; this project is **not** affiliated with BlackRock and uses **no** vendor or production data.*
+
+This repository is a **public, synthetic** companion to a production system I designed and built at a former employer. It documents architecture and tradeoffs and ships runnable SQL that implements the full pipeline—**kernelization**, **variable / subject space** views, **linear scores**, **`UNPIVOT` / `LATERAL VALUES`**, **argmax gating**, **`ENRICHED_OBSERVATION_ROW`**—on that FI-shaped sample. Formalism is in **How the scoring engine works**; sample I/O is in **Worked example** and **Demo data model**.
 
 **Original write-up (2019 context, published 2020):** [Building a Semantic Layer Using AI](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html)
 
 ## What this repo is for
 
-- **Interview narrative:** Production context, constraints, performance, integrations, and lessons in `docs/case-study.md` (this README holds the **technical primer**, **worked example**, and quick starts).
-- **Technical proof of familiarity:** You can run the demo locally and step through the SQL.
-- **Not a reproduction:** No proprietary schemas, data, or code from the employer.
+- **Interview narrative:** Production context, constraints, performance, integrations, and lessons in `docs/case-study.md` (this README holds the **Aladdin-style FI demo**, **technical primer**, **worked example**, and quick starts).
+- **Technical proof of familiarity:** Run the SQL scripts end-to-end; every result set is labeled (`VARIABLE_SPACE_*`, `SUBJECT_SPACE_BY_ISIN`, `ENRICHED_OBSERVATION_ROW`, etc.).
+- **Not a reproduction:** No proprietary schemas, data, or code from the employer; ISINs and attributes are **fabricated** for pedagogy.
 
 ## How the scoring engine works
 
 ### Stakeholder view (what each “run” decides)
 
-For every **observation** in scope, the engine **chooses exactly one subject option** (outcome) from a finite catalog and **attaches that outcome’s descriptor fields** (queue, SLA, cost center, etc.). The **inputs** are the raw qualitative attributes plus the **expert-maintained** rule weights and enrichment rows. The **output** is the same grain as the feed—**one enriched row per observation**—so downstream SQL reports and BI tools can consume it without a separate scoring API.
+For every **security** in scope (one row in the reference-style feed), the engine **chooses exactly one subject option**—here, an **analytics / operations workstream**—from a finite catalog and **attaches that outcome’s descriptor fields** (routing queue, SLA bucket, book / cost-center tag). The **inputs** are qualitative **security-master-style** attributes (e.g. ISIN, issuer class, region, rating band) plus **expert-maintained** rule weights and enrichment rows. The **output** is **one enriched row per security**, same grain as the instrument feed, so risk, performance, and data teams can join results in SQL, Power BI, or downstream Aladdin-adjacent reporting without a separate scoring tier.
 
 **Separated for clarity (facts vs policy vs math):**
 
-- **Data / structure (facts in the demo):** Kernelization maps text fields into a **fixed** list of binary features. Matrix $K$ holds **non-negative** weights $k_{im}$ on those features for each outcome $i$; demo rows are **normalized** ($\sum_m k_{im}=1$) so per-outcome scores sit on a comparable scale.
+- **Data / structure (facts in the demo):** Kernelization maps FI reference text (issuer class, region, rating band) into a **fixed** list of binary features (`fi_sovereign`, `fi_corporate`, `region_*`, `rating_ig`, …). Matrix $K$ holds **non-negative** weights $k_{im}$ on those features for each workstream $i$; demo rows are **normalized** ($\sum_m k_{im}=1$) so per-outcome scores sit on a comparable scale.
 - **Business policy (declared, not learned):** The winning outcome is the one with the **highest score**; **ties** resolve by a **fixed ordering** on outcome id (`rule_id` in SQL). Production also used precedence “waterfall” rules—see `docs/case-study.md`.
 - **What is *not* decided here:** Continuous allocation, budgets, or solver-tuned decision vectors; there is **no** numerical optimization over a free $x\in\mathbb{R}^n$ in this pattern.
 
 ### Technical primer: linear algebra and the argmax gate
 
-**Notation.** $M$ = number of atomic binary features after kernelization. $N$ = number of outcomes (subject options). For observation $j$, let $d_j \in \{0,1\}^M$ be the feature vector (stored sparsely in SQL). For outcome $i$, let $k_i \in \mathbb{R}^M$ be the weight vector (zeros implied on features absent from `demo_rule_weights`).
+**Notation.** $M$ = number of atomic binary features after kernelization. $N$ = number of outcomes (subject options / workstreams). For observation $j$ (e.g. one security in the demo), let $d_j \in \{0,1\}^M$ be the feature vector (stored sparsely in SQL). For outcome $i$, let $k_i \in \mathbb{R}^M$ be the weight vector (zeros implied on features absent from `demo_rule_weights`).
 
 **Linear score.** The score of outcome $i$ against observation $j$ is the standard inner product
 
@@ -48,9 +50,9 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 
 ### Reproducibility
 
-- **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (all data in-script).
+- **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (three **synthetic** FI securities, three **Aladdin-style** workstreams, all `INSERT`s in-script).
 - **Command:** Run the **Quick start** sections below for PostgreSQL or SQL Server.
-- **Main result to check:** final grid **`ENRICHED_OBSERVATION_ROW`** (and optionally **`UNPIVOT_LONG`**).
+- **Main result to check:** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + queue / SLA / book); optionally **`UNPIVOT_LONG`** and **`SUBJECT_SPACE_BY_ISIN`**.
 
 ### Limitations (negative space)
 
@@ -62,9 +64,19 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 
 | Path | Purpose |
 |------|--------|
-| `docs/case-study.md` | Production / org narrative: problem, approach summary, constraints, performance, integrations, lessons; defers equations and demo tables to this README |
-| `sql/postgres/demo.sql` | End-to-end toy example (PostgreSQL) |
-| `sql/sqlserver/demo.sql` | Same idea, T-SQL flavored (closer to the original post) |
+| `docs/case-study.md` | Production / org narrative; ties original system to this repo’s **Aladdin-style FI** portfolio demo |
+| `sql/postgres/demo.sql` | End-to-end **Aladdin-style FI** reference demo (PostgreSQL; synthetic ISINs) |
+| `sql/sqlserver/demo.sql` | Same pipeline, T-SQL (closer to the original SQL Server post) |
+| `scripts/render_readme_preview.py` | Optional: `README.md` → `README.preview.html` for local viewing |
+
+## Demo data model (Aladdin-style, synthetic)
+
+| Layer | Contents |
+|-------|-----------|
+| **Raw observation** | `isin`, `issuer_class` (sovereign / corporate), `region` (na / emea), `rating_band` (ig / core)—shaped like fields you might join from a **security master** or FI reference extract, not a live Aladdin export. |
+| **Kernelized features** | Sparse 0/1 atoms: `fi_sovereign`, `fi_corporate`, `region_emea`, `region_na`, `rating_ig`. |
+| **Outcomes ($K$ rows)** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA)—each with `routing_queue`, `sla_bucket`, `cost_center` enrichment. |
+| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: one row per ISIN with raw attributes, wide scores `a/b/c`, `winning_workstream`, and attached operational metadata. |
 
 ## Worked example (what the demo is doing)
 
@@ -109,13 +121,14 @@ In short: the **US sovereign IG NA** name routes to **sovereign rates (NA)**; th
 ## Quick start (PostgreSQL)
 
 ```bash
-# From repo root — adjust connection flags for your environment
+# From repo root — Aladdin-style FI demo (synthetic ISINs); adjust connection flags
 psql -U postgres -d postgres -f sql/postgres/demo.sql
 ```
 
 ## Quick start (SQL Server)
 
 ```bash
+# Same demo as PostgreSQL; T-SQL + temp tables
 sqlcmd -S . -d master -i sql/sqlserver/demo.sql
 ```
 
@@ -151,4 +164,4 @@ Semantic layer, expert / rules engine, fixed income reference data, decision aut
 
 ## License
 
-Content and demo SQL are provided for portfolio use; adapt as you see fit.
+Content and demo SQL are provided for portfolio use; adapt as you see fit. **Demo securities and Aladdin-style naming are illustrative only** and imply no relationship to BlackRock or to any live instrument or data product.

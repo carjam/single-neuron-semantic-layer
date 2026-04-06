@@ -1,10 +1,12 @@
 # Case study: In-database semantic layer and rule scoring
 
-This document is the **production and organizational** narrative (problem, constraints, scale, integrations). For **runnable SQL**, **sample inputs/outputs**, and the **linear-algebra / argmax-gate primer**, start with the repo [`README.md`](../README.md).
+This document is the **production and organizational** narrative (problem, constraints, scale, integrations). For **runnable SQL**, the **Aladdin-style fixed income** sample securities, **sample inputs/outputs**, and the **linear-algebra / argmax-gate primer**, start with the repo [`README.md`](../README.md).
 
 ## Summary
 
 Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregate upstream feeds. Much of the “expert knowledge” lived in spreadsheets or in analysts’ heads. Reporting still depended heavily on a **legacy database-centric** system that was trusted and slow to replace. The goal was to give users a **maintainable semantic layer** (dimensions and labels they owned) while **merging that metadata with daily observations inside the database** so existing reporting pipelines could consume enriched rows without a big-bang rewrite.
+
+**This repository’s demo** re-skins **observations** as **fixed income securities** in an **Aladdin-style reference shape** (ISIN, issuer class, region, rating band) and **outcomes** as **analytics workstreams** (e.g. sovereign rates vs corporate credit by region). All ISINs and attributes are **synthetic**; *Aladdin®* is a trademark of BlackRock, Inc., and this project is independent.
 
 ## Problem
 
@@ -18,9 +20,9 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
    Experts create and maintain dimensions and descriptor values through a web UI; data is stored relationally and exposed via APIs (and optionally Excel/Power Query as a thin client).
 
 2. **In-database scoring and enrichment**  
-   User-maintained **rules** and **descriptor columns** (the “white” semantic fields) were combined with daily **observations** inside SQL: qualitative fields were **kernelized** to a fixed binary feature dictionary, **expert weights** formed rows of a matrix $K$, scores were **linear** in those features, outcomes were chosen with **argmax** (plus **waterfall / tie precedence** in production), and results were reshaped (**wide scores → `UNPIVOT`**) so consumers received **one enriched row per observation**.  
+   User-maintained **rules** and **descriptor columns** (the “white” semantic fields) were combined with daily **observations** inside SQL: qualitative fields were **kernelized** to a fixed binary feature dictionary, **expert weights** formed rows of a matrix $K$, scores were **linear** in those features, outcomes were chosen with **argmax** (plus **waterfall / tie precedence** in production), and results were reshaped (**wide scores → `UNPIVOT`**) so consumers received **one enriched row per observation** (in the portfolio repo: **per security** on the FI reference feed).  
 
-   **Formal notation** ($s_{ij}=\langle k_i,d_j\rangle$, problem class vs LP/QP, gate semantics), **reproducibility**, and a **worked numeric example** live in [`README.md`](../README.md) so this file stays focused on context and operations.
+   **Formal notation** ($s_{ij}=\langle k_i,d_j\rangle$, problem class vs LP/QP, gate semantics), **reproducibility**, and a **worked numeric example** with **Aladdin-style** sample data live in [`README.md`](../README.md) so this file stays focused on context and operations.
 
 ## Constraints and non-goals
 
@@ -38,6 +40,7 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 
 - **Enterprise GraphQL** for federated access.
 - **Power BI** and **Excel (Power Query)** for analyst workflows.
+- In institutional FI workflows, analogous enriched rows are often joined to **risk / performance** stacks (e.g. platforms in the **Aladdin** ecosystem); the demo does **not** call external APIs—only **in-database** enrichment is illustrated.
 
 ## Lessons (still relevant)
 
