@@ -1,5 +1,5 @@
-import Script from "next/script";
 import { Nav } from "@/components/Nav";
+import { RedocClient } from "./RedocClient";
 
 export default function ApiDocsPage() {
   return (
@@ -12,10 +12,7 @@ export default function ApiDocsPage() {
         </a>{" "}
         (<code className="rounded bg-zinc-100 px-1 text-xs">public/openapi.yaml</code>).
       </p>
-      <div className="border-t border-zinc-200">
-        <Script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js" strategy="afterInteractive" />
-        <redoc spec-url="/openapi.yaml" />
-      </div>
+      <RedocClient />
     </div>
   );
 }

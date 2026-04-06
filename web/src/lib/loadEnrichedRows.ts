@@ -53,16 +53,18 @@ export async function loadEnrichedRows() {
   const ruleIds = rules.map((r) => r.id);
   const scoreByObs = new Map<number, Record<number, number>>();
   for (const s of scoreRows) {
-    if (!scoreByObs.has(s.observation_id)) {
+    const obsId = Number(s.observation_id);
+    const ruleId = Number(s.rule_id);
+    if (!scoreByObs.has(obsId)) {
       const init: Record<number, number> = {};
       for (const rid of ruleIds) init[rid] = 0;
-      scoreByObs.set(s.observation_id, init);
+      scoreByObs.set(obsId, init);
     }
-    scoreByObs.get(s.observation_id)![s.rule_id] = Number(s.score ?? 0);
+    scoreByObs.get(obsId)![ruleId] = Number(s.score ?? 0);
   }
 
   return rows.map((r): EnrichedObservationRow => ({
-    observationId: r.observation_id,
+    observationId: Number(r.observation_id),
     isin: r.isin,
     aldIssuerClass: r.ald_issuer_class,
     fundIssuerClassOverride: r.fund_issuer_class_override,
@@ -76,7 +78,7 @@ export async function loadEnrichedRows() {
     hierarchyTop: r.hierarchy_top,
     hierarchyMiddle: r.hierarchy_middle,
     hierarchyBottom: r.hierarchy_bottom,
-    matchedHierarchyRuleId: r.matched_hierarchy_rule_id,
+    matchedHierarchyRuleId: r.matched_hierarchy_rule_id === null ? null : Number(r.matched_hierarchy_rule_id),
     descriptorValues: [
       r.descriptor_01,
       r.descriptor_02,
@@ -93,11 +95,11 @@ export async function loadEnrichedRows() {
       .split(",")
       .map((x) => Number(x))
       .filter((x) => Number.isInteger(x) && x > 0),
-    scoreByRuleId: scoreByObs.get(r.observation_id) ?? {},
+    scoreByRuleId: scoreByObs.get(Number(r.observation_id)) ?? {},
     scoreA: Number(r.score_a ?? 0),
     scoreB: Number(r.score_b ?? 0),
     scoreC: Number(r.score_c ?? 0),
-    winningRuleId: r.winning_rule_id,
+    winningRuleId: Number(r.winning_rule_id),
     winningDecisionCode: r.winning_workstream,
     winningScore: Number(r.winning_score ?? 0),
   }));

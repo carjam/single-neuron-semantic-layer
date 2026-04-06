@@ -85,9 +85,9 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 
 ### Reproducibility
 
-- **Fixture:** `sql/postgres/demo.sql` or `sql/sqlserver/demo.sql` (seven **synthetic** FI rows with **`ald_*` + `fund_*_override`**, three workstreams, all `INSERT`s in-script).
+- **Fixture:** `sql/postgres/demo.sql` (seven **synthetic** FI rows with **`ald_*` + `fund_*_override`**, three workstreams, all `INSERT`s in-script).
 - **Canonical Postgres routines:** `demo_get_dense_scores()` and `demo_get_enriched_rows()` are created by `sql/postgres/demo.sql` and act as the shared scoring/enrichment source used by both SQL output sections and the web API.
-- **Command:** Run the **Quick start** sections below for PostgreSQL or SQL Server.
+- **Command:** Run the PostgreSQL quick start section below.
 - **Full Postgres run (no local `psql`):** With **Docker** running (e.g. Docker Desktop), from repo root run `.\scripts\run_postgres_demo_docker.ps1` (Windows) or `bash scripts/run_postgres_demo_docker.sh` (macOS/Linux). This starts an **ephemeral** `postgres:16-alpine` container, executes the demo, prints all result sets (including **`ENRICHED_OBSERVATION_ROW`**), then removes the container.
 - **Syntax check (no DB):** `pip install pglast` then `python scripts/verify_postgres_demo.py` — confirms the Postgres script is valid SQL (verified in development: **27** statements parse cleanly).
 - **Toy UI (Next.js):** `web/` — Postgres + Prisma mapped to the same `demo_*` tables used by `sql/postgres/demo.sql`, with CRUD for **hierarchy rules** (`rule_id` + 3-level pattern + up to 10 descriptor columns), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example`, run the Postgres demo SQL once, then run `cd web && npm install && npm run db:generate && npm run dev`.
@@ -110,7 +110,6 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 | `docs/case-study.md` | Production / org narrative; ties original system to this repo’s **Aladdin-style FI** portfolio demo |
 | `docs/images/enriched-output.png` | Screenshot of the **Enriched output** screen in the Next.js toy UI (`/enriched`) |
 | `sql/postgres/demo.sql` | End-to-end **Aladdin-style FI** reference demo (PostgreSQL; synthetic ISINs) |
-| `sql/sqlserver/demo.sql` | Same pipeline, T-SQL (closer to the original SQL Server post) |
 | `scripts/verify_postgres_demo.py` | Optional: parse-check `sql/postgres/demo.sql` with **pglast** (no Postgres server) |
 | `scripts/run_postgres_demo_docker.ps1` | Optional: run the Postgres demo end-to-end in Docker (no local `psql`; Windows) |
 | `scripts/run_postgres_demo_docker.sh` | Same as above for bash (macOS/Linux) |
@@ -206,13 +205,6 @@ bash scripts/run_postgres_demo_docker.sh
 
 Use a different image tag if needed: `.\scripts\run_postgres_demo_docker.ps1 -PostgresImage postgres:17-alpine` (PowerShell) or `POSTGRES_IMAGE=postgres:17-alpine bash scripts/run_postgres_demo_docker.sh` (bash).
 
-## Quick start (SQL Server)
-
-```bash
-# Same demo as PostgreSQL; T-SQL + temp tables
-sqlcmd -S . -d master -i sql/sqlserver/demo.sql
-```
-
 Opening `README.md` in a browser as a file usually shows **plain text**. Use your editor’s Markdown preview, or view the repo on **GitHub**, where the home-page README is rendered (including math).
 
 ## After you create a GitHub remote
@@ -249,7 +241,7 @@ git commit --amend --reset-author --no-edit
 
 ## Tags
 
-Expert system, semantic layer, kernelization of categorical data, linear layer / argmax analogy, classification override, vendor vs fund taxonomy, fixed income reference data, rules engine, decision automation, linear scoring, SQL (PostgreSQL, T-SQL), data engineering, in-database enrichment, portfolio / interview artifact.
+Expert system, semantic layer, kernelization of categorical data, linear layer / argmax analogy, classification override, vendor vs fund taxonomy, fixed income reference data, rules engine, decision automation, linear scoring, SQL (PostgreSQL), data engineering, in-database enrichment, portfolio / interview artifact.
 
 ## License
 
