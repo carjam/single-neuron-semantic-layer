@@ -207,6 +207,16 @@ git config user.email "you@example.com"
 git commit --amend --reset-author --no-edit
 ```
 
+## Future enhancements
+
+**SQL performance (from the [original article](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html), as they apply to this pattern).** The portfolio scripts are intentionally small and pedagogical; at production scale the same pipeline would benefit from the tactics called out there and summarized in `docs/case-study.md`:
+
+- **Shrink work early:** expose enrichment through **selective entry points** (e.g. table-valued functions or contracts that **require keys / filters**) so the optimizer can use **indexes** on large observation tables instead of scoring every row on every call.
+- **Lighten hot paths:** prefer **pre-kernelized numeric or binary** features over heavy string logic where possible, and keep **`UNPIVOT` / wide-score column identifiers short** to cut string comparison cost in tight loops.
+- **Stage and index intermediates:** **materialized or temp staging** with appropriate **indexes** on intermediate results often beats a single monolithic **CTE-only** shape when predicates do not push down cleanly—see also the README **Limitations** note on indexed TVFs and replicas.
+
+**Historical enrichments.** Production runs should **record which enrichment snapshot** was used when a row was scored—e.g. **rule / weight version**, **semantic layer or override state**, and **pipeline build**—so past routing decisions, audits, and reconciliations can be explained even after experts change $K$ or overrides. This repo’s demo is **point-in-time** only; persisting that lineage is left as a deliberate extension.
+
 ## Tags
 
 Semantic layer, classification override, vendor vs fund taxonomy, fixed income reference data, expert / rules engine, decision automation, linear scoring, SQL (PostgreSQL, T-SQL), data engineering, in-database enrichment, portfolio / interview artifact.
