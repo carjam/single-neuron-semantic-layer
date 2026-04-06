@@ -66,6 +66,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 - **Command:** Run the **Quick start** sections below for PostgreSQL or SQL Server.
 - **Full Postgres run (no local `psql`):** With **Docker** running (e.g. Docker Desktop), from repo root run `.\scripts\run_postgres_demo_docker.ps1` (Windows) or `bash scripts/run_postgres_demo_docker.sh` (macOS/Linux). This starts an **ephemeral** `postgres:16-alpine` container, executes the demo, prints all result sets (including **`ENRICHED_OBSERVATION_ROW`**), then removes the container.
 - **Syntax check (no DB):** `pip install pglast` then `python scripts/verify_postgres_demo.py` — confirms the Postgres script is valid SQL (verified in development: **27** statements parse cleanly).
+- **Toy UI (Next.js):** `web/` — SQLite + Prisma, REST CRUD for per-outcome **descriptors** (`routing_queue`, `sla_bucket`, `cost_center`), and a second screen that recomputes **enriched** rows (same pipeline as **`ENRICHED_OBSERVATION_ROW`**). See **`web/.env.example`** and run `cd web && npm install && npx prisma migrate dev && npm run dev`.
 - **Main result to check:** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + queue / SLA / book); optionally **`UNPIVOT_LONG`** and **`SUBJECT_SPACE_BY_ISIN`**.
 
 ### Limitations (negative space)
@@ -85,6 +86,7 @@ with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the 
 | `scripts/verify_postgres_demo.py` | Optional: parse-check `sql/postgres/demo.sql` with **pglast** (no Postgres server) |
 | `scripts/run_postgres_demo_docker.ps1` | Optional: run the Postgres demo end-to-end in Docker (no local `psql`; Windows) |
 | `scripts/run_postgres_demo_docker.sh` | Same as above for bash (macOS/Linux) |
+| `web/` | Next.js toy UI: REST descriptor CRUD + enriched-output view (Prisma/SQLite; mirrors demo scoring) |
 
 ## Demo data model (Aladdin-style vendor + fund overrides, synthetic)
 

@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Outcome / workstream (subject option); scoring weights live in RuleWeight.
+model Rule {
+  id           Int           @id @map("rule_id")
+  decisionCode String        @unique @map("decision_code")
+  descriptor   Descriptor?
+  weights      RuleWeight[]
+
+  @@map("rules")
+}
+
+/// User-maintained semantic “white columns” per decision (routing, SLA, book).
+model Descriptor {
+  ruleId       Int    @id @map("rule_id")
+  routingQueue String @map("routing_queue")
+  slaBucket    String @map("sla_bucket")
+  costCenter   String @map("cost_center")
+  rule         Rule   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("descriptors")
+}
+
+model Feature {
+  id      Int          @id @map("feature_id")
+  code    String       @unique @map("feature_code")
+  weights RuleWeight[]
+
+  @@map("features")
+}
+
+model RuleWeight {
+  ruleId    Int
+  featureId Int
+  weight    Float
+  rule      Rule    @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([ruleId, featureId])
+  @@map("rule_weights")
+}
+
+/// Raw security rows: vendor (ald_*) + optional fund overrides.
+model Observation {
+  id                      Int     @id @default(autoincrement()) @map("observation_id")
+  isin                    String
+  aldIssuerClass          String  @map("ald_issuer_class")
+  fundIssuerClassOverride String? @map("fund_issuer_class_override")
+  aldRegion               String  @map("ald_region")
+  fundRegionOverride      String? @map("fund_region_override")
+  aldRatingBand           String  @map("ald_rating_band")
+  fundRatingBandOverride  String? @map("fund_rating_band_override")
+
+  @@map("observations")
+}
