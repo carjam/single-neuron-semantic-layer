@@ -1,6 +1,6 @@
 # SQL expert system + semantic layer (portfolio)
 
-*Why **`single-neuron-semantic-layer`**?* The scoring story is almost embarrassingly shallow on purpose: **sparse linear scores** in (dot products against hand-maintained rule kernels), then a single **hard `argmax`**—no depth, no softmax, no training loop. If you squint, that is a one-neuron mood: one linear layer’s worth of arithmetic and a winner-take-all “activation.” The **semantic layer** half of the name is the straight-faced part—that is the fund override sheet sitting on top of vendor reference data so internal routing can disagree with the feed without rewriting it. No backprop was harmed; the only gradients here are political.
+
 
 ## The business problem
 
@@ -19,6 +19,8 @@
 **In one picture:** you have a **large** set of observations and a **much smaller** qualitative catalog (rules, taxonomies, policy rows). **Kernelization** maps **both** into the **same** dictionary of atomic binary features—**sparse** 0/1 vectors (only a handful of dimensions “on” per row). **Compatibility** is expressed with dot products under explicit rules (e.g. wildcards); **choice** is **aggregate + `argmax`**. Conceptually that is **fast enrichment**: the rich structure lives in the **small** rule side; each observation only carries **short** activations—closer to a **join** than to ad hoc string logic on every row.
 
 **Why it travels.** The same recipe applies whenever a **small curated catalog** must attach **scores, routes, or labels** to **very many** categorically described rows: **shared sparse basis → inner products → reduce** (max, top-k, …). Think rule engines, entitlements, coarse recommenders, multi-axis classification—not only reference-data enrichment. **On a GPU**, the hot path is **batched linear algebra** with a **small broadcast** rule block and **parallel per-row** reductions—favorable memory patterns versus thread-divergent string branching.
+
+
 
 The rest of this README **instantiates** the pattern in Postgres and spells out math, SQL, and a worked table example.
 
@@ -71,6 +73,8 @@ i^\star(j) \in \arg\max_{i=1,\ldots,N} s_{ij},
 $$
 
 with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the demo). That is winner-take-all gating: no softmax, no temperature, no gradient-based learning.
+
+*Why **`single-neuron-semantic-layer`**?* The scoring story is shallow on purpose: **sparse linear scores** in (dot products against hand-maintained rule kernels), then a single **hard `argmax`**—no depth, no softmax, no training loop. If you squint, that is a one-neuron mood: one linear layer’s worth of arithmetic and a winner-take-all “activation.” 
 
 **Problem class.** Not LP/QP/MILP over continuous $x$: **linear functionals** of fixed binary $d_j$ plus **discrete max** over finitely many outcomes—fast, auditable; not a probability model.
 
