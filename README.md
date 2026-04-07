@@ -1,58 +1,48 @@
 # SQL expert system + semantic layer (portfolio)
 
-## Expert system first—also a semantic layer
+*Why **`single-neuron-semantic-layer`**?* The scoring story is almost embarrassingly shallow on purpose: **sparse linear scores** in (dot products against hand-maintained rule kernels), then a single **hard `argmax`**—no depth, no softmax, no training loop. If you squint, that is a one-neuron mood: one linear layer’s worth of arithmetic and a winner-take-all “activation.” The **semantic layer** half of the name is the straight-faced part—that is the fund override sheet sitting on top of vendor reference data so internal routing can disagree with the feed without rewriting it. No backprop was harmed; the only gradients here are political.
 
-**Primary lens: expert system.** Qualitative business facts (classifications, regions, rating bands) are matched against wildcard rules, scored with sparse matrix-style compatibility, and resolved by deterministic argmax. Rules are human-authored and auditable.
+## The business problem
 
-**Also a semantic layer.** Fund-owned overrides (`fund_*_override`) sit on top of vendor reference attributes (`ald_*`) to produce **effective** labels used for scoring, while vendor lineage remains on each enriched row.
+**Context.** Asset managers run on **vendor reference data**—classifications, regions, rating bands—delivered with each security. That feed is the **operational source of truth** for risk, settlements, compliance, and reconciliation. Editing it in place is usually a bad trade: you weaken the audit trail to what the vendor asserted and you fight the feed on every refresh.
 
-## Situation & solution (read this first)
+**The tension.** Portfolio and operating teams still need **internal** semantics that legitimately differ: mandates and sleeves, desk or book ownership, risk and PnL aggregation, capacity, client reporting. Those cuts rarely match the vendor’s taxonomy exactly (e.g. a **North America–listed** name **managed from EMEA**). The business ask is to **route, label, and report** on **fund-owned** views while **preserving** raw vendor fields wherever the platform must stay aligned with the external record.
 
-**Platform reality:** vendor-defined classification hierarchies arrive with each security.
+**Approach.** A **semantic layer**: optional **fund overrides** on vendor attributes. Overrides define **effective** labels for scoring and routing; original **`ald_*`** columns stay on the row for lineage. Outcomes (workstreams, descriptors) are chosen by a **kernelized** rule engine—described next, then in full detail below.
 
-**Portfolio need:** fund teams still need custom grouping/routing when their taxonomy differs from the vendor taxonomy.
+**What this repo is.** A **portfolio demonstration**, not a shipping system. It is meant to demonstrate **a real business solution** by combining **applied mathematics** (qualitative facts → a structured linear score → a discrete decision) with **software engineering** (executable SQL, clear data / policy / computation boundaries, a design that stays tractable at scale). The walkthrough is **minimal PostgreSQL** on synthetic data: `ald_*` + nullable `fund_*_override` → **effective** → kernelization → sparse scores → **argmax** → **`ENRICHED_OBSERVATION_ROW`**, including a **region override** that treats a US corporate as **EMEA** for internal routing **without** mutating the vendor feed.
 
-**System response:** optional fund overrides produce effective labels for scoring/routing while keeping raw vendor fields for lineage and audit.
+*Aladdin® is a registered trademark of BlackRock, Inc. This project is **not** affiliated with BlackRock, uses **no** vendor or production data, and all ISINs are **fabricated**.* It is a **public, synthetic** companion to a production system I built elsewhere; org-scale context and lessons are in **`docs/case-study.md`**.
 
-**What this repository demonstrates:** The same idea in **minimal SQL**: synthetic `ald_*` + nullable `fund_*_override` → **effective** → kernelization → sparse matrix-style scores → argmax → **`ENRICHED_OBSERVATION_ROW`**. The worked example includes a **fund region override** that rebooks a US corporate from **NA** to **EMEA** for internal aggregation **without** editing the vendor feed.
+## The kernelization idea (general pattern)
 
-*Aladdin® is a registered trademark of BlackRock, Inc. This project is **not** affiliated with BlackRock, uses **no** vendor or production data, and all ISINs are **fabricated**.*
+**In one picture:** you have a **large** set of observations and a **much smaller** qualitative catalog (rules, taxonomies, policy rows). **Kernelization** maps **both** into the **same** dictionary of atomic binary features—**sparse** 0/1 vectors (only a handful of dimensions “on” per row). **Compatibility** is expressed with dot products under explicit rules (e.g. wildcards); **choice** is **aggregate + `argmax`**. Conceptually that is **fast enrichment**: the rich structure lives in the **small** rule side; each observation only carries **short** activations—closer to a **join** than to ad hoc string logic on every row.
 
-This repository is a **public, synthetic** companion to a production system I designed and built at a former employer. See the technical primer below plus worked sample I/O.
+**Why it travels.** The same recipe applies whenever a **small curated catalog** must attach **scores, routes, or labels** to **very many** categorically described rows: **shared sparse basis → inner products → reduce** (max, top-k, …). Think rule engines, entitlements, coarse recommenders, multi-axis classification—not only reference-data enrichment. **On a GPU**, the hot path is **batched linear algebra** with a **small broadcast** rule block and **parallel per-row** reductions—favorable memory patterns versus thread-divergent string branching.
 
-## What this repo is for
+The rest of this README **instantiates** the pattern in Postgres and spells out math, SQL, and a worked table example.
 
-- **Case-study narrative:** Production context, constraints, performance, integrations, and lessons in `docs/case-study.md` (this README holds the **Aladdin-style FI demo**, **technical primer**, **worked example**, and quick starts).
-- **Technical proof of familiarity:** Run the SQL scripts end-to-end and inspect canonical outputs (`HIERARCHY_RULE_SPACE`, `ENRICHED_OBSERVATION_ROW`) plus the shared Postgres routines.
-- **Not a reproduction:** No proprietary schemas, data, or code from the employer; ISINs and attributes are **fabricated** for pedagogy.
-
-## Intuitive result view
-
-The UI can render many columns for diagnostics, but the core intuition is straightforward: left-side observation context, right-side scores and attached descriptors after winner selection.
+## Enriched output (toy UI)
 
 ![Simplified enriched output: key observation context plus winning enrichment fields](docs/images/enriched-output-simple.png)
 
 ## How the scoring engine works
 
+**Framing.** Treat this as an **expert system**: human-authored wildcard rules, sparse compatibility scores, deterministic **argmax**. The **semantic layer** is the override story—`fund_*_override` over **`ald_*`** → **effective** labels for scoring, with vendor lineage retained on the output row.
+
 ### Kernelization, matrix-style scoring, and gating
 
-**Qualitative → numeric.** Vendor and fund-side fields are **categorical** (issuer class, region, rating band, …). **Kernelization** maps each row’s **effective** labels into a **sparse binary vector** $d_j \in \{0,1\}^M$ over a **fixed dictionary** of atomic features (e.g. `fi_corporate`, `region_emea`). That step is the bridge from **qualitative data** to something algebra can consume—without pretending the categories were already real numbers.
+**Qualitative → numeric.** **Kernelization** maps each row’s **effective** labels into a **sparse binary vector** $d_j \in \{0,1\}^M$ over a **fixed dictionary** (e.g. `fi_corporate`, `region_emea`)—categories made concrete for algebra without fake real-valued encodings.
 
-**Matrix-style scoring under constraints.** Each observation is mapped to a normalized hierarchy (levels 1..7; levels 1..3 are commonly used), kernelized into sparse axis-value features, then scored against kernelized hierarchy rules via sparse dot-product. Compatibility constraints still apply (`*` means "axis not specified"; non-wildcard mismatches are rejected). Score is normalized by the number of non-wildcard rule axes (minimum denominator `3` for backward compatibility), and each decision keeps the best matching hierarchy rule score. Hierarchy levels remain generic slots; separate one-level dimension enrichment is handled independently.
+**Scoring under constraints.** Observations get a normalized hierarchy (up to 7 levels; often 3), kernelized to sparse axis–value features, then matched to kernelized rules via sparse dot products. `*` = axis unspecified; non-wildcard mismatches zero the score. Denominator normalizes by non-wildcard rule axes (floored at `3` for backward compatibility). **Dimension rules** (one-level tags) attach descriptors separately from the hierarchy decision.
 
-**Logic gating.** The discrete choice $\arg\max_i s_{ij}$ (with a fixed tie-break) is a **hard winner-take-all gate**: one outcome “on,” the rest “off.” There is **no softmax**, **no depth**, and **no training loop** in this artifact.
-
-**Resemblance to a tiny net.** You can still view this as “score vector + hard gate.” In this demo, the score vector is produced by sparse matrix-style dot products over kernelized hierarchy dimensions.
+**Gating.** $\arg\max_i s_{ij}$ with a fixed tie-break is **winner-take-all**—no softmax, depth, or training loop. You can read it as **score vector + hard max** from sparse dot products over kernelized axes.
 
 ### Stakeholder view (what each run decides)
 
-For each security, the engine picks one workstream (argmax) and attaches descriptors. Inputs are vendor fields plus optional fund overrides; scoring uses effective values. Output is one enriched row per security with both lineage and decision artifacts.
+Per security: one **winning workstream** (argmax) plus attached descriptors. Inputs: **`ald_*`** + optional overrides; scoring uses **effective** values. Output: one enriched row with lineage and decision fields.
 
-**Separated for clarity (facts vs policy vs math):**
-
-- **Data / structure (facts in the demo):** For each dimension, **effective value** = non-blank **fund override** if set, else **`ald_*` vendor value**. A normalized hierarchy is derived from effective issuer (`Debt/Govt|Corp|Deriv/<issuer>`). Hierarchy rules allow wildcards and include a `rule_id` target plus semantic descriptor fields.
-- **Business policy (declared, not learned):** The winning outcome is the one with the **highest score**; **ties** resolve by a **fixed ordering** on outcome id (`rule_id` in SQL). Production also used precedence “waterfall” rules—see `docs/case-study.md`.
-- **What is *not* decided here:** Continuous allocation, budgets, or solver-tuned decision vectors; there is **no** numerical optimization over a free $x\in\mathbb{R}^n$ in this pattern.
+**Facts vs policy vs math:** **Effective** = non-blank override else **`ald_*`**; hierarchy from effective issuer (`Debt/Govt|Corp|Deriv/…`). **Policy:** highest score wins; ties break on fixed **`rule_id`** order (production had additional waterfall rules—`docs/case-study.md`). **Out of scope:** continuous allocation or optimization over $x\in\mathbb{R}^n$.
 
 ### Technical primer: matrix-style scoring and argmax gate
 
@@ -82,39 +72,22 @@ $$
 
 with a **deterministic tie-break** among argmax ties (smallest `rule_id` in the demo). That is winner-take-all gating: no softmax, no temperature, no gradient-based learning.
 
-**Problem class (precision).** This is **not** LP, QP, or MILP in the sense of optimizing a continuous or mixed-integer decision $x$ subject to constraints. The mathematics is **linear functionals** of fixed binary $d_j$ plus **discrete maximization** over a **finite** label set—fast to evaluate and easy to audit, at the cost of no built-in uncertainty quantification.
+**Problem class.** Not LP/QP/MILP over continuous $x$: **linear functionals** of fixed binary $d_j$ plus **discrete max** over finitely many outcomes—fast, auditable; not a probability model.
 
-### From matrix to tensor-like extension
+### From matrix to multi-rule-family
 
-The original pattern is a 2D scoring surface (observations x hierarchy rules). With added independent dimension rules (for example region grouping), the conceptual model becomes multi-axis: observation x rule-family x rule-index.
-
-In practice, we execute multiple sparse 2D computations (one per rule family) and merge deterministically:
-- hierarchy family: sparse compatibility scoring + argmax for decisioning
-- dimension family: one-level rule matching for additional descriptors
-
-So the architecture generalizes toward a tensor-like model while keeping SQL execution simple, performant, and auditable.
+Conceptually: observations × hierarchy rules, plus **separate** dimension-rule families. In SQL: **two** sparse 2D passes (hierarchy → argmax; dimensions → extra descriptors) merged deterministically—tensor-flavored, but kept flat for clarity and plans.
 
 ### Runtime practicality at large scale
 
-This is practical at runtime because evaluation is sparse matching + aggregation, not repeated string-heavy row logic.
-
-- **At-a-glance flow:** ingest -> apply overrides -> derive effective labels -> sparse score aggregation -> argmax -> attach hierarchy + dimension descriptors.
-- **Why it scales:** sparse kernels mean each observation activates only a small subset of features, so scoring cost grows with active features, not with the full rule text surface.
-- **Latency control:** precompute or incrementally refresh observation feature projections; avoid rebuilding kernels from raw text for every request.
-- **Database fit:** B-tree indexes on join keys (`observation_id`, `rule_id`, feature axis/value) and selective entry points (TVFs/endpoints with required filters) keep plans stable under load.
-- **Throughput pattern:** batch scoring for changed observations and cache immutable rule kernels between rule-set versions.
-- **Operational guardrails:** version rule snapshots and record which snapshot scored each row so results stay explainable after rule edits.
+Sparse matching + aggregation, not row-wise string soup. **Flow:** ingest → overrides → effective features → sparse scores → argmax → attach descriptors. **Scale:** cost tracks **active** features, not full rule text. **Ops:** precompute observation features where helpful; index join keys; selective TVFs/APIs with required keys; batch deltas; **version** rule snapshots on scored rows (explainability after edits).
 
 ### Reproducibility
 
-- **Fixture:** `sql/postgres/demo.sql` (seven **synthetic** FI rows with **`ald_*` + `fund_*_override`**, three workstreams, all `INSERT`s in-script).
-- **Canonical Postgres routines:** `demo_get_dense_scores()` and `demo_get_enriched_rows()` are created by `sql/postgres/demo.sql` and act as the shared scoring/enrichment source used by both SQL output sections and the web API.
-- **Command:** Run the PostgreSQL quick start section below.
-- **Full Postgres run (no local `psql`):** With **Docker** running (e.g. Docker Desktop), from repo root run `.\scripts\run_postgres_demo_docker.ps1` (Windows) or `bash scripts/run_postgres_demo_docker.sh` (macOS/Linux). This starts an **ephemeral** `postgres:16-alpine` container, executes the demo, prints all result sets (including **`ENRICHED_OBSERVATION_ROW`**), then removes the container.
-- **Syntax check (no DB):** `pip install pglast` then `python scripts/verify_postgres_demo.py` — confirms the Postgres script is valid SQL (verified in development: **27** statements parse cleanly).
-- **Toy UI (Next.js):** `web/` — Postgres + Prisma mapped to the same `demo_*` tables used by `sql/postgres/demo.sql`, with CRUD for **hierarchy rules** (`rule_id` + variable-depth pattern levels 1..7 + up to 10 descriptor columns) plus one-level **dimension rules** (`/api/dimension-rules`), enriched output page, and `/api-docs` with OpenAPI. See `web/.env.example`, run the Postgres demo SQL once, then run `cd web && npm install && npm run db:generate && npm run dev`.
-
-- **Main result to check (`/enriched`):** final grid **`ENRICHED_OBSERVATION_ROW`** (security + chosen workstream + descriptor columns).
+- **Fixture + routines:** `sql/postgres/demo.sql` — seven synthetic FI rows, `demo_get_dense_scores()`, `demo_get_enriched_rows()` (shared by script output and API).
+- **Run:** Quick start below; or Docker: `.\scripts\run_postgres_demo_docker.ps1` / `bash scripts/run_postgres_demo_docker.sh` (ephemeral `postgres:16-alpine`, prints **`ENRICHED_OBSERVATION_ROW`**).
+- **Parse-only:** `pip install pglast` && `python scripts/verify_postgres_demo.py`.
+- **UI:** `web/` (Prisma + Postgres, rule CRUD, `/enriched`, OpenAPI at `/api-docs`). After SQL load: `cd web && npm install && npm run db:generate && npm run dev` (see `web/.env.example`).
 
 ### Limitations (negative space)
 
@@ -122,36 +95,9 @@ This is practical at runtime because evaluation is sparse matching + aggregation
 - Hierarchy rules and overrides need governance (who can change patterns or wildcard precedence, and how conflicts are reviewed)—errors are operational, not mathematical.
 - This repo does **not** reproduce production **scale** mechanics (indexed TVFs, staging on read replicas, etc.); those are described in `docs/case-study.md`.
 
-## Repository layout
-
-| Path | Purpose |
-|------|--------|
-| `docs/case-study.md` | Production / org narrative; ties original system to this repo’s **Aladdin-style FI** portfolio demo |
-| `docs/images/enriched-output-simple.png` | Simplified screenshot of the **Enriched output** screen in the Next.js toy UI (`/enriched`) |
-| `sql/postgres/demo.sql` | End-to-end **Aladdin-style FI** reference demo (PostgreSQL; synthetic ISINs) |
-| `scripts/verify_postgres_demo.py` | Optional: parse-check `sql/postgres/demo.sql` with **pglast** (no Postgres server) |
-| `scripts/run_postgres_demo_docker.ps1` | Optional: run the Postgres demo end-to-end in Docker (no local `psql`; Windows) |
-| `scripts/run_postgres_demo_docker.sh` | Same as above for bash (macOS/Linux) |
-| `web/` | Next.js toy UI: descriptor CRUD, enriched grid/CSV, **OpenAPI 3** (`public/openapi.yaml`) + **`/api-docs`** (Prisma/PostgreSQL) |
-
-## Demo data model (Aladdin-style vendor + fund overrides, synthetic)
-
-| Layer | Contents |
-|-------|-----------|
-| **Vendor reference (`ald_*`)** | Mimics platform hierarchy: `ald_issuer_class`, `ald_region`, `ald_rating_band` (values like sovereign / corporate, na / emea, ig / core). |
-| **Fund semantic layer (`fund_*_override`)** | Nullable per column; when **non-blank**, replaces the corresponding `ald_*` for **scoring only** (vendor columns remain in the enriched output for lineage). |
-| **Effective (implicit)** | `COALESCE(NULLIF(TRIM(override), ''), ald_value)` per dimension—this is what **kernelization** sees. |
-| **Kernelized features** | Sparse 0/1 atoms over **effective** labels: `fi_sovereign`, `fi_corporate`, `region_emea`, `region_na`, `rating_ig`. |
-| **Hierarchy enrichment rules** | User-maintained match rows with `*` wildcard support across `hierarchy_top`, `hierarchy_middle`, `hierarchy_bottom`, `hierarchy_level_04..07`; sparse kernel dot-product score is computed per rule and max-selected per outcome. |
-| **Dimension enrichment rules** | Separate one-level rules (`dimension_name`, `dimension_value`) for non-hierarchy fields (e.g. vendor region grouping); applied independently so hierarchy model stays intact. |
-| **Decision outcomes** | Workstreams: sovereign rates (NA), corporate credit (NA), corporate credit (EMEA). |
-| **Deliverable** | **`ENRICHED_OBSERVATION_ROW`**: `ald_*`, `fund_*_override`, **`effective_*`**, sparse matrix-style scores, `winning_workstream`, wildcard-resolved semantic descriptors. |
-
 ## Worked example (Aladdin-style FI data + fund overrides)
 
-The SQL loads **seven synthetic** fixed income rows: each has **vendor (`ald_*`)** reference attributes and optional **`fund_*_override`** values maintained by the fund (semantic layer). **Kernelization** uses **effective** = override when non-blank, else vendor. **ISINs are fabricated** (`…ALDIN…`). *Aladdin® is a registered trademark of BlackRock, Inc.; this repo is independent and for illustration only.*
-
-Match the **`INSERT` into `demo_observations`** and **`ENRICHED_OBSERVATION_ROW`** to the tables below.
+Seven synthetic rows: **`ald_*`** plus optional **`fund_*_override`**; **effective** = override when non-blank, else vendor. Match **`demo_observations`** / **`ENRICHED_OBSERVATION_ROW`** in `sql/postgres/demo.sql` to the tables below.
 
 ### Inputs: vendor hierarchy vs fund overrides
 
@@ -182,7 +128,7 @@ Each row is a candidate **downstream workstream**. `decision_code` is the key se
 | `ald_corp_credit_na` | Corporate credit — North America |
 | `ald_corp_credit_emea` | Corporate credit — EMEA |
 
-Experts maintain hierarchy rules with wildcard support. The engine kernelizes hierarchy rows and observations, computes sparse matrix-style scores, reshapes wide scores (`a`/`b`/`c`) to long, and applies argmax (tie-break on `rule_id`).
+Experts maintain wildcard hierarchy rules; the engine kernelizes, scores, reshapes wide outcome slots (`a`/`b`/`c`), and argmaxes (tie-break `rule_id`).
 
 ### Output: enriched rows (vendor + overrides + effective + winner)
 
@@ -230,7 +176,7 @@ Opening `README.md` in a browser as a file usually shows **plain text**. Use you
 ## After you create a GitHub remote
 
 ```bash
-cd single-neuron-semantic-layer
+cd semantic-layer-sql-expert-system
 git init
 git add .
 git commit -m "Initial commit: case study and synthetic SQL demos"
@@ -251,13 +197,9 @@ git commit --amend --reset-author --no-edit
 
 ## Future enhancements
 
-**SQL performance (from the [original article](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html), as they apply to this pattern).** The portfolio scripts are intentionally small and pedagogical; at production scale the same pipeline would benefit from the tactics called out there and summarized in `docs/case-study.md`:
+**SQL performance** ([background article](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html); production tactics in `docs/case-study.md`): selective TVFs/contracts with **required keys**; **pre-kernelized** binary features; short identifier churn in hot paths; **staged + indexed** intermediates when CTEs resist predicate pushdown.
 
-- **Shrink work early:** expose enrichment through **selective entry points** (e.g. table-valued functions or contracts that **require keys / filters**) so the optimizer can use **indexes** on large observation tables instead of scoring every row on every call.
-- **Lighten hot paths:** prefer **pre-kernelized numeric or binary** features over heavy string logic where possible, and keep **`UNPIVOT` / wide-score column identifiers short** to cut string comparison cost in tight loops.
-- **Stage and index intermediates:** **materialized or temp staging** with appropriate **indexes** on intermediate results often beats a single monolithic **CTE-only** shape when predicates do not push down cleanly—see also the README **Limitations** note on indexed TVFs and replicas.
-
-**Historical enrichments.** Production runs should record which enrichment snapshot was used when a row was scored—e.g. hierarchy-rule version set, override state, and pipeline build—so past routing decisions remain explainable after rule edits.
+**Historical enrichments.** Record rule-set version and pipeline build on scored rows for post-hoc explanation.
 
 ## Tags
 
