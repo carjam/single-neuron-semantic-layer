@@ -18,9 +18,9 @@
 
 **In one picture:** you have a **large** set of observations and a **much smaller** qualitative catalog (rules, taxonomies, policy rows). **Kernelization** maps **both** into the **same** dictionary of atomic binary features—**sparse** 0/1 vectors (only a handful of dimensions “on” per row). **Compatibility** is expressed with dot products under explicit rules (e.g. wildcards); **choice** is **aggregate + `argmax`**. Conceptually that is **fast enrichment**: the rich structure lives in the **small** rule side; each observation only carries **short** activations—closer to a **join** than to ad hoc string logic on every row.
 
+**FFT-flavored intuition.** The idea formed while I was learning the **FFT**: pose the problem in a **native** form where the operation you want is messy, **change basis** into coordinates where **combining** or **matching** is easy, do the work there, then **interpret the result back** on the original objects. Kernelization is that change of coordinates for **categorical** data—not sines and cosines, but the same **representational move**. The sparse feature space is where **linear** scoring behaves like a disciplined **join**; **argmax** and descriptor columns are how the outcome **lands** again as human-readable labels on each row.
+
 **Why it travels.** The same recipe applies whenever a **small curated catalog** must attach **scores, routes, or labels** to **very many** categorically described rows: **shared sparse basis → inner products → reduce** (max, top-k, …). Think rule engines, entitlements, coarse recommenders, multi-axis classification—not only reference-data enrichment. **On a GPU**, the hot path is **batched linear algebra** with a **small broadcast** rule block and **parallel per-row** reductions—favorable memory patterns versus thread-divergent string branching.
-
-
 
 The rest of this README **instantiates** the pattern in Postgres and spells out math, SQL, and a worked table example.
 
