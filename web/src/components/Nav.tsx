@@ -9,7 +9,7 @@ const active =
 export function Nav({
   current,
 }: {
-  current: "home" | "descriptors" | "enriched" | "api-docs";
+  current?: "home" | "descriptors" | "enriched" | "api-docs";
 }) {
   return (
     <header className="border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">

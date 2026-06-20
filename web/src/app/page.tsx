@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
+import { Footer } from "@/components/Footer";
 
 function Card({
   href,
@@ -37,9 +38,9 @@ function Card({
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-zinc-100 to-zinc-50 dark:from-zinc-900 dark:to-zinc-950">
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-zinc-100 to-zinc-50 dark:from-zinc-900 dark:to-zinc-950">
       <Nav current="home" />
-      <main className="mx-auto max-w-5xl px-4 pb-16 pt-10 sm:pt-14">
+      <main className="mx-auto max-w-5xl flex-1 px-4 pb-16 pt-10 sm:pt-14">
         <header className="max-w-3xl">
           <p className="text-sm font-medium uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
             Illustrative demo
@@ -83,9 +84,21 @@ export default function Home() {
             <li>All securities and fields are <strong className="font-medium text-zinc-800 dark:text-zinc-300">synthetic</strong>—for learning and discussion, not trading or reporting.</li>
             <li>The logic is a simplified cousin of a real semantic layer: vendor-style reference data plus optional fund overrides, then a clear winner and attached metadata.</li>
             <li>Nothing here connects to production systems or market data vendors.</li>
+            <li>
+              Use of this demo is subject to the{" "}
+              <a href="/legal/terms" className="font-medium text-emerald-800 underline-offset-2 hover:underline dark:text-emerald-300">
+                Terms of Service
+              </a>{" "}
+              and{" "}
+              <a href="/legal/privacy" className="font-medium text-emerald-800 underline-offset-2 hover:underline dark:text-emerald-300">
+                Privacy Policy
+              </a>
+              .
+            </li>
           </ul>
         </section>
       </main>
+      <Footer />
     </div>
   );
 }

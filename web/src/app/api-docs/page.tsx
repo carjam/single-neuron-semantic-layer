@@ -1,9 +1,10 @@
 import { Nav } from "@/components/Nav";
+import { Footer } from "@/components/Footer";
 import { RedocClient } from "./RedocClient";
 
 export default function ApiDocsPage() {
   return (
-    <div className="min-h-screen bg-white text-zinc-900">
+    <div className="flex min-h-screen flex-col bg-white text-zinc-900">
       <Nav current="api-docs" />
       <p className="mx-auto max-w-6xl px-4 pb-2 pt-4 text-sm text-zinc-600">
         Interactive documentation generated from the{" "}
@@ -12,7 +13,10 @@ export default function ApiDocsPage() {
         </a>{" "}
         (<code className="rounded bg-zinc-100 px-1 text-xs">public/openapi.yaml</code>).
       </p>
-      <RedocClient />
+      <div className="flex-1">
+        <RedocClient />
+      </div>
+      <Footer />
     </div>
   );
 }

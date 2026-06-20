@@ -5,6 +5,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { EnrichedObservationRow } from "@/lib/engine";
 import { Nav } from "@/components/Nav";
+import { Footer } from "@/components/Footer";
 
 type ObsCol = {
   id: string;
@@ -248,9 +249,9 @@ export function EnrichedClient({ initialRows }: { initialRows: EnrichedObservati
   const [isPending, startTransition] = useTransition();
 
   return (
-    <div className="min-h-screen bg-zinc-100 dark:bg-zinc-950">
+    <div className="flex min-h-screen flex-col bg-zinc-100 dark:bg-zinc-950">
       <Nav current="enriched" />
-      <main className="px-4 py-8">
+      <main className="flex-1 px-4 py-8">
         <div className="mx-auto max-w-[100rem]">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -359,6 +360,7 @@ export function EnrichedClient({ initialRows }: { initialRows: EnrichedObservati
           </div>
         </div>
       </main>
+      <Footer />
     </div>
   );
 }

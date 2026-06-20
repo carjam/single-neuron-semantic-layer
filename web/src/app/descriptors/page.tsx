@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
+import { Footer } from "@/components/Footer";
 
 type RuleRow = { ruleId: number; decisionCode: string };
 
@@ -157,9 +158,9 @@ export default function DescriptorsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
+    <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Nav current="descriptors" />
-      <main className="mx-auto max-w-7xl px-4 py-8">
+      <main className="mx-auto max-w-7xl flex-1 px-4 py-8">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">Hierarchy rule management</h1>
         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
           Choose a decision rule, define the hierarchy match pattern (<code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">*</code> allowed), and set up to 10 descriptors.
@@ -345,6 +346,7 @@ export default function DescriptorsPage() {
           </button>
         </section>
       </main>
+      <Footer />
     </div>
   );
 }

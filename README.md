@@ -1,5 +1,7 @@
 # SQL expert system + semantic layer (portfolio)
 
+> **Portfolio project:** Viewing and evaluation only — not open source. See [LICENSE](LICENSE) for terms. If you use the published web demo, Terms of Service and Privacy Policy are linked in the site footer.
+
 
 
 ## The business problem
@@ -211,4 +213,14 @@ Expert system, semantic layer, kernelization of categorical data, linear layer /
 
 ## License
 
-Content and demo SQL are provided for portfolio use; adapt as you see fit. **Demo securities and Aladdin-style naming are illustrative only** and imply no relationship to BlackRock or to any live instrument or data product.
+> **Portfolio project:** Code and demo materials are available for **viewing and evaluation only**, not open source. See [LICENSE](LICENSE) and [docs/NOTICE.md](docs/NOTICE.md) for full terms.
+
+You may:
+- View the repository and interactive demo
+- Review for technical assessment or hiring discussions
+
+You may **not** use, copy, modify, or distribute the code or demo without written permission.
+
+**Commercial licensing:** jamescarson3rd@gmail.com
+
+Demo securities and Aladdin-style naming are **illustrative only** and imply no relationship to BlackRock or to any live instrument or data product.
