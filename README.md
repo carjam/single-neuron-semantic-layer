@@ -2,23 +2,25 @@
 
 > **Portfolio project:** Viewing and evaluation only — not open source. See [LICENSE](LICENSE) for terms. If you use the published web demo, Terms of Service and Privacy Policy are linked in the site footer.
 
-
-
 ## The business problem
 
 **Context.** Asset managers run on **vendor reference data**—classifications, regions, rating bands—delivered with each security. That feed is the **operational source of truth** for risk, settlements, compliance, and reconciliation. Editing it in place is usually a bad trade: you weaken the audit trail to what the vendor asserted and you fight the feed on every refresh.
 
 **The tension.** Portfolio and operating teams still need **internal** semantics that legitimately differ: mandates and sleeves, desk or book ownership, risk and PnL aggregation, capacity, client reporting. Those cuts rarely match the vendor’s taxonomy exactly (e.g. a **North America–listed** name **managed from EMEA**). The business ask is to **route, label, and report** on **fund-owned** views while **preserving** raw vendor fields wherever the platform must stay aligned with the external record.
 
+**Impact (production).** The production engine replaced a daily manual mapping process that took analysts several hours a day—**500+ analyst hours a year**, counted conservatively. Desk staff maintain the rules themselves, so new mappings no longer need engineering work.
+
 **Approach.** A **semantic layer**: optional **fund overrides** on vendor attributes. Overrides define **effective** labels for scoring and routing; original **`ald_*`** columns stay on the row for lineage. Outcomes (workstreams, descriptors) are chosen by a **kernelized** rule engine—described next, then in full detail below.
 
 **What this repo is.** A **portfolio demonstration**, not a shipping system. It is meant to demonstrate **a real business solution** by combining **applied mathematics** (qualitative facts → a structured linear score → a discrete decision) with **software engineering** (executable SQL, clear data / policy / computation boundaries, a design that stays tractable at scale). The walkthrough is **minimal PostgreSQL** on synthetic data: `ald_*` + nullable `fund_*_override` → **effective** → kernelization → sparse scores → **argmax** → **`ENRICHED_OBSERVATION_ROW`**, including a **region override** that treats a US corporate as **EMEA** for internal routing **without** mutating the vendor feed.
 
-*Aladdin® is a registered trademark of BlackRock, Inc. This project is **not** affiliated with BlackRock, uses **no** vendor or production data, and all ISINs are **fabricated**.* It is a **public, synthetic** companion to a production system I built elsewhere; org-scale context and lessons are in **`docs/case-study.md`**.
+*Aladdin® is a registered trademark of BlackRock, Inc. This project is **not** affiliated with BlackRock, uses **no** vendor or production data, and all ISINs are **fabricated**.* It is a minimal, synthetic re-implementation of a **production engine I designed and built from scratch** at a global asset manager. Production used the **same kernelization**; this repo leaves out the proprietary data, scale mechanics, and waterfall rules. Org-scale context and lessons are in **`docs/case-study.md`**.
 
 ## The kernelization idea (general pattern)
 
 **In one picture:** you have a **large** set of observations and a **much smaller** qualitative catalog (rules, taxonomies, policy rows). **Kernelization** maps **both** into the **same** dictionary of atomic binary features—**sparse** 0/1 vectors (only a handful of dimensions “on” per row). **Compatibility** is expressed with dot products under explicit rules (e.g. wildcards); **choice** is **aggregate + `argmax`**. Conceptually that is **fast enrichment**: the rich structure lives in the **small** rule side; each observation only carries **short** activations—closer to a **join** than to ad hoc string logic on every row.
+
+**Why vectors.** Row-by-row string matching against the rule catalog was too slow for the security master. Encoding categories as sparse vectors turned matching into a dot product, which databases and GPUs handle as a join or batched linear algebra.
 
 **FFT-flavored intuition.** The idea formed while I was learning the **FFT**: pose the problem in a **native** form where the operation you want is messy, **change basis** into coordinates where **combining** or **matching** is easy, do the work there, then **interpret the result back** on the original objects. Kernelization is that change of coordinates for **categorical** data—not sines and cosines, but the same **representational move**. The sparse feature space is where **linear** scoring behaves like a disciplined **join**; **argmax** and descriptor columns are how the outcome **lands** again as human-readable labels on each row.
 
@@ -32,7 +34,7 @@ The rest of this README **instantiates** the pattern in Postgres and spells out 
 
 ## How the scoring engine works
 
-**Framing.** Treat this as an **expert system**: human-authored wildcard rules, sparse compatibility scores, deterministic **argmax**. The **semantic layer** is the override story—`fund_*_override` over **`ald_*`** → **effective** labels for scoring, with vendor lineage retained on the output row.
+**Framing.** Treat this as an **expert system**: human-authored wildcard rules, sparse compatibility scores, deterministic **argmax**. The **semantic layer** is the override story—`fund_*_override` over **`ald_*`** → **effective** labels for scoring, with vendor lineage retained on the output row. Expert systems are classic **symbolic AI**: the knowledge lives in human-authored rules, and every decision traces back to the rule that produced it, so it is explainable to auditors.
 
 ### Kernelization, matrix-style scoring, and gating
 
@@ -179,28 +181,6 @@ Use a different image tag if needed: `.\scripts\run_postgres_demo_docker.ps1 -Po
 
 Opening `README.md` in a browser as a file usually shows **plain text**. Use your editor’s Markdown preview, or view the repo on **GitHub**, where the home-page README is rendered (including math).
 
-## After you create a GitHub remote
-
-```bash
-cd semantic-layer-sql-expert-system
-git init
-git add .
-git commit -m "Initial commit: case study and synthetic SQL demos"
-git branch -M main
-git remote add origin https://github.com/YOUR_USER/YOUR_REPO.git
-git push -u origin main
-```
-
-If you **already created an empty repo on GitHub**, clone it into this folder’s parent and copy these files in, or add `origin` as above.
-
-**Git author:** If the first commit used placeholder `user.name` / `user.email` (local to this repo only), set your real identity and fix the author:
-
-```bash
-git config user.name "Your Name"
-git config user.email "you@example.com"
-git commit --amend --reset-author --no-edit
-```
-
 ## Future enhancements
 
 **SQL performance** ([background article](https://dispassionatedeveloper.blogspot.com/2020/04/building-sql-based-expert-system-for.html); production tactics in `docs/case-study.md`): selective TVFs/contracts with **required keys**; **pre-kernelized** binary features; short identifier churn in hot paths; **staged + indexed** intermediates when CTEs resist predicate pushdown.
@@ -209,7 +189,7 @@ git commit --amend --reset-author --no-edit
 
 ## Tags
 
-Expert system, semantic layer, kernelization of categorical data, linear layer / argmax analogy, classification override, vendor vs fund taxonomy, fixed income reference data, rules engine, decision automation, linear scoring, SQL (PostgreSQL), data engineering, in-database enrichment, portfolio / interview artifact.
+Expert system, symbolic AI, explainable AI, vector similarity, semantic layer, kernelization of categorical data, linear layer / argmax analogy, classification override, vendor vs fund taxonomy, fixed income reference data, rules engine, decision automation, linear scoring, SQL (PostgreSQL), data engineering, in-database enrichment, portfolio / interview artifact.
 
 ## License
 

@@ -10,7 +10,7 @@ Business users had built a **spreadsheet farm** to cleanse, enrich, and aggregat
 
 ## Problem
 
-- Junior analysts spent large amounts of time on **manual data wrangling**.
+- Junior analysts spent large amounts of time on **manual data wrangling**—several hours every business day. The engine replaced that daily process (**500+ analyst hours a year**, counted conservatively).
 - **User-defined metadata** had to be reflected **in real time** in queries (daily upstream refresh + live edits to rules/labels).
 - The **observation table was large and heavily queried**; enrichment could not afford to scan the world or fight the optimizer on every report.
 
